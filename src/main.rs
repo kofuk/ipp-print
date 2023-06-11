@@ -110,16 +110,13 @@ enum StatusCode {
 }
 
 #[derive(Debug)]
+#[allow(unused)]
 struct StringWithLanguage {
     lang: String,
     string: String,
 }
 
 impl StringWithLanguage {
-    fn new(lang: String, string: String) -> Self {
-        Self { lang, string }
-    }
-
     fn parse_buffer(buf: Vec<u8>) -> Result<Self, ()> {
         let len = buf.len();
         if len < 2 {
@@ -145,6 +142,7 @@ impl StringWithLanguage {
 }
 
 #[derive(Debug)]
+#[allow(unused)]
 struct Resolution {
     resolution_cross_feed: i32,
     resolution_feed: i32,
@@ -166,6 +164,7 @@ impl Resolution {
 }
 
 #[derive(Debug)]
+#[allow(unused)]
 struct DateTime {
     year: u16,
     month: u8,
