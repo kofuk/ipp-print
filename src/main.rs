@@ -408,7 +408,7 @@ fn parse_response(data: Vec<u8>) -> Result<(), Box<dyn Error>> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let printer_addr = std::env::var("PRINTER_ADDR").expect("PRINTER_ADDR is not set");
+    let printer_addr = std::env::var("PRINTER_ADDR").expect("PRINTER_ADDR is not set (should be a value like \"192.0.2.1:631\")");
 
     let client = Client::new();
 
