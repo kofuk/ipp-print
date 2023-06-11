@@ -167,18 +167,37 @@ fn parse_response(data: Vec<u8>) -> Result<(), Box<dyn Error>> {
     let request_id = read_and_decode!(data, i32)?;
     println!("request-id: {}", request_id);
 
-    let begin_attribute_group_tag: DelimiterTag =
+    let mut begin_attribute_group_tag: DelimiterTag =
         FromPrimitive::from_i8(read_and_decode!(data, i8)?).unwrap();
-    println!("begin-attribute-group-tag: {:?}", begin_attribute_group_tag);
+    loop {
+        println!("begin-attribute-group-tag: {:?}", begin_attribute_group_tag);
+        match begin_attribute_group_tag {
+            DelimiterTag::EndOfAttributesTag => break,
+            _ => (),
+        };
 
-    let value_tag: AttributeSyntax = FromPrimitive::from_i8(read_and_decode!(data, i8)?).unwrap();
-    println!("value-tag: {:?}", value_tag);
+        loop {
+            let value_tag_data = read_and_decode!(data, i8)?;
+            if value_tag_data < 0x10 {
+                begin_attribute_group_tag = FromPrimitive::from_i8(value_tag_data).unwrap();
 
-    let name = read_and_decode!(data, String)?;
-    println!("name: {}", name);
+                break;
+            }
 
-    let value = read_and_decode!(data, String)?;
-    println!("value: {}", value);
+            let value_tag: AttributeSyntax = FromPrimitive::from_i8(value_tag_data).unwrap();
+            println!("value-tag: {:?}", value_tag);
+
+            let name = read_and_decode!(data, String)?;
+            println!("name: {}", name);
+
+            let value = read_and_decode!(data, String);
+            if value.is_ok() {
+                println!("value: {}", value.unwrap());
+            } else {
+                println!("value: <binary data>");
+            }
+        }
+    }
 
     Ok(())
 }
