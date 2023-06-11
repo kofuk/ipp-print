@@ -110,12 +110,111 @@ enum StatusCode {
 }
 
 #[derive(Debug)]
+struct StringWithLanguage {
+    lang: String,
+    string: String,
+}
+
+impl StringWithLanguage {
+    fn new(lang: String, string: String) -> Self {
+        Self { lang, string }
+    }
+
+    fn parse_buffer(buf: Vec<u8>) -> Result<Self, ()> {
+        let len = buf.len();
+        if len < 2 {
+            return Err(());
+        }
+        let lang_len = i16::from_be_bytes([buf[0], buf[1]]) as usize;
+        if len < 2 + lang_len + 2 {
+            return Err(());
+        }
+        let str_len = i16::from_be_bytes([buf[2 + lang_len], buf[2 + lang_len + 1]]) as usize;
+        if len < 2 + lang_len + 2 + str_len {
+            return Err(());
+        }
+
+        Ok(Self {
+            lang: String::from_utf8(buf[2..(2 + lang_len)].to_vec()).unwrap(),
+            string: String::from_utf8(
+                buf[(2 + lang_len + 2)..(2 + lang_len + 2 + str_len)].to_vec(),
+            )
+            .unwrap(),
+        })
+    }
+}
+
+#[derive(Debug)]
+struct Resolution {
+    resolution_cross_feed: i32,
+    resolution_feed: i32,
+    units: i8,
+}
+
+impl Resolution {
+    fn parse_buffer(buf: Vec<u8>) -> Result<Self, ()> {
+        if buf.len() != 9 {
+            Err(())
+        } else {
+            Ok(Self {
+                resolution_cross_feed: i32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]),
+                resolution_feed: i32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]),
+                units: buf[8] as i8,
+            })
+        }
+    }
+}
+
+#[derive(Debug)]
+struct DateTime {
+    year: u16,
+    month: u8,
+    day: u8,
+    hour: u8,
+    minutes: u8,
+    seconds: u8,
+    deci_seconds: u8,
+    direction_from_utc: char,
+    hours_from_utc: u8,
+    minutes_from_utc: u8,
+}
+
+impl DateTime {
+    fn parse_buffer(buf: Vec<u8>) -> Result<Self, ()> {
+        if buf.len() != 11 {
+            return Err(());
+        }
+        Ok(Self {
+            year: u16::from_be_bytes([buf[0], buf[1]]),
+            month: buf[2],
+            day: buf[3],
+            hour: buf[4],
+            minutes: buf[5],
+            seconds: buf[6],
+            deci_seconds: buf[7],
+            direction_from_utc: buf[8] as char,
+            hours_from_utc: buf[9],
+            minutes_from_utc: buf[10],
+        })
+    }
+}
+
+#[derive(Debug)]
 enum AttributeValue {
     Unsupported(Vec<u8>),
     Integer(i32),
     Boolean(bool),
     Enum(i32),
+    OctetStringUnspecified(String),
+    DateTime(DateTime),
+    Resolution(Resolution),
     RangeOfInteger(Range<i32>),
+    BegCollection,
+    TextWithLanguage(StringWithLanguage),
+    NameWithLanguage(StringWithLanguage),
+    EndCollection,
+    TextWithoutLanguage(String),
+    NameWithoutLanguage(String),
     Keyword(String),
     Uri(String),
     UriScheme(String),
@@ -192,6 +291,17 @@ macro_rules! read_and_decode {
                     Err(())
                 }
             }
+            AttributeSyntax::OctetStringUnspecified => Ok(AttributeValue::OctetStringUnspecified(
+                String::from_utf8(buf).unwrap(),
+            )),
+            AttributeSyntax::DateTime => match DateTime::parse_buffer(buf) {
+                Ok(value) => Ok(AttributeValue::DateTime(value)),
+                Err(_) => Err(()),
+            },
+            AttributeSyntax::Resolution => match Resolution::parse_buffer(buf) {
+                Ok(value) => Ok(AttributeValue::Resolution(value)),
+                Err(_) => Err(()),
+            },
             AttributeSyntax::RangeOfInteger => {
                 if len == 8 {
                     Ok(AttributeValue::RangeOfInteger(
@@ -202,6 +312,22 @@ macro_rules! read_and_decode {
                     Err(())
                 }
             }
+            AttributeSyntax::BegCollection => Ok(AttributeValue::BegCollection),
+            AttributeSyntax::TextWithLanguage => match StringWithLanguage::parse_buffer(buf) {
+                Ok(value) => Ok(AttributeValue::TextWithLanguage(value)),
+                Err(_) => Err(()),
+            },
+            AttributeSyntax::NameWithLanguage => match StringWithLanguage::parse_buffer(buf) {
+                Ok(value) => Ok(AttributeValue::NameWithLanguage(value)),
+                Err(_) => Err(()),
+            },
+            AttributeSyntax::EndCollection => Ok(AttributeValue::EndCollection),
+            AttributeSyntax::TextWithoutLanguage => Ok(AttributeValue::TextWithoutLanguage(
+                String::from_utf8(buf).unwrap(),
+            )),
+            AttributeSyntax::NameWithoutLanguage => Ok(AttributeValue::NameWithoutLanguage(
+                String::from_utf8(buf).unwrap(),
+            )),
             AttributeSyntax::Keyword => {
                 Ok(AttributeValue::Keyword(String::from_utf8(buf).unwrap()))
             }
