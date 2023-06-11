@@ -2,6 +2,7 @@ use num::FromPrimitive;
 use reqwest::blocking::Client;
 use std::error::Error;
 use std::io::prelude::*;
+use std::ops::Range;
 
 #[macro_use]
 extern crate num_derive;
@@ -108,6 +109,22 @@ enum StatusCode {
     ServerErrorMultipleDocumentJobsNotSupported = 0x0509,
 }
 
+#[derive(Debug)]
+enum AttributeValue {
+    Unsupported(Vec<u8>),
+    Integer(i32),
+    Boolean(bool),
+    Enum(i32),
+    RangeOfInteger(Range<i32>),
+    Keyword(String),
+    Uri(String),
+    UriScheme(String),
+    Charset(String),
+    NaturalLanguage(String),
+    MimeMediaType(String),
+    MemberAttrName(String),
+}
+
 macro_rules! write_int_be {
     ($writer:ident,$var:path as $ty:ident) => {{
         let data = $ty::to_be_bytes($var as $ty);
@@ -143,6 +160,69 @@ macro_rules! read_and_decode {
         let mut buf = vec![0u8; len as usize];
         $reader.read_exact(buf.as_mut_slice())?;
         String::from_utf8(buf)
+    }};
+
+    ($reader:ident,AttributeValue::$attr_type:expr) => {{
+        let len = read_and_decode!($reader, i16)?;
+        let mut buf = vec![0u8; len as usize];
+        $reader.read_exact(buf.as_mut_slice())?;
+        match $attr_type {
+            AttributeSyntax::Integer => {
+                if len == 4 {
+                    Ok(AttributeValue::Integer(i32::from_be_bytes([
+                        buf[0], buf[1], buf[2], buf[3],
+                    ])))
+                } else {
+                    Err(())
+                }
+            }
+            AttributeSyntax::Boolean => {
+                if len == 1 {
+                    Ok(AttributeValue::Boolean(buf[0] == 1))
+                } else {
+                    Err(())
+                }
+            }
+            AttributeSyntax::Enum => {
+                if len == 4 {
+                    Ok(AttributeValue::Enum(i32::from_be_bytes([
+                        buf[0], buf[1], buf[2], buf[3],
+                    ])))
+                } else {
+                    Err(())
+                }
+            }
+            AttributeSyntax::RangeOfInteger => {
+                if len == 8 {
+                    Ok(AttributeValue::RangeOfInteger(
+                        i32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]])
+                            ..i32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]),
+                    ))
+                } else {
+                    Err(())
+                }
+            }
+            AttributeSyntax::Keyword => {
+                Ok(AttributeValue::Keyword(String::from_utf8(buf).unwrap()))
+            }
+            AttributeSyntax::Uri => Ok(AttributeValue::Uri(String::from_utf8(buf).unwrap())),
+            AttributeSyntax::UriScheme => {
+                Ok(AttributeValue::UriScheme(String::from_utf8(buf).unwrap()))
+            }
+            AttributeSyntax::Charset => {
+                Ok(AttributeValue::Charset(String::from_utf8(buf).unwrap()))
+            }
+            AttributeSyntax::NaturalLanguage => Ok(AttributeValue::NaturalLanguage(
+                String::from_utf8(buf).unwrap(),
+            )),
+            AttributeSyntax::MimeMediaType => Ok(AttributeValue::MimeMediaType(
+                String::from_utf8(buf).unwrap(),
+            )),
+            AttributeSyntax::MemberAttrName => Ok(AttributeValue::MemberAttrName(
+                String::from_utf8(buf).unwrap(),
+            )),
+            _ => Ok(AttributeValue::Unsupported(buf)),
+        }
     }};
 
     ($reader:ident,$type:ident) => {{
@@ -185,16 +265,16 @@ fn parse_response(data: Vec<u8>) -> Result<(), Box<dyn Error>> {
             }
 
             let value_tag: AttributeSyntax = FromPrimitive::from_i8(value_tag_data).unwrap();
-            println!("value-tag: {:?}", value_tag);
 
             let name = read_and_decode!(data, String)?;
             println!("name: {}", name);
 
-            let value = read_and_decode!(data, String);
-            if value.is_ok() {
-                println!("value: {}", value.unwrap());
-            } else {
-                println!("value: <binary data>");
+            match read_and_decode!(data, AttributeValue::value_tag) {
+                Ok(AttributeValue::Unsupported(value)) => {
+                    println!("value: {:?} (type: {:?})", value, value_tag)
+                }
+                Ok(value) => println!("value: {:?}", value),
+                Err(_) => println!("value: ({:?})<binary data>", value_tag),
             }
         }
     }
