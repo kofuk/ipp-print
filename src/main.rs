@@ -7,10 +7,6 @@ use std::ops::Range;
 #[macro_use]
 extern crate num_derive;
 
-// IPP/1.1
-// https://www.rfc-editor.org/rfc/rfc8010.html
-// https://www.rfc-editor.org/rfc/inline-errata/rfc8011.html
-
 #[allow(unused)]
 enum PrinterOperation {
     PrintJob = 0x0002,
