@@ -520,6 +520,11 @@ mod tests {
         write_attr!(buf, NaturalLanguage, "attributes-natural-language", "ja-jp").unwrap();
         write_attr!(buf, Uri, "printer-uri", "ipp://192.0.2.1:631").unwrap();
 
+        write_attr!(buf, BegCollection, "collection", "");
+        write_attr!(buf, MemberAttrName, "", "key1");
+        write_attr!(buf, Keyword, "", "value1");
+        write_attr!(buf, EndCollection, "", "");
+
         // end-of-attributes
         write_int_be!(buf, DelimiterTag::EndOfAttributesTag as i8).unwrap();
 
