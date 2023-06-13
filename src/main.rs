@@ -30,17 +30,15 @@ enum PrinterOperation {
 
 #[derive(Debug, FromPrimitive, ToPrimitive)]
 #[allow(unused)]
-enum DelimiterTag {
+enum DelimiterOrValueTag {
+    // delimiter-tag
     OperationAttributesTag = 0x01,
     JobAttributesTag = 0x02,
     EndOfAttributesTag = 0x03,
     PrinterAttributesTag = 0x04,
     UnsupportedAttributesTag = 0x05,
-}
 
-#[derive(Debug, FromPrimitive, ToPrimitive)]
-#[allow(unused)]
-enum AttributeSyntax {
+    // value-tag
     Unsupported = 0x10,
     Unknown = 0x12,
     NoValue = 0x13,
@@ -230,7 +228,7 @@ macro_rules! write_int_be {
 
 macro_rules! write_attr {
     ($writer:ident,$type:ident,$name:expr,$value:expr) => {
-        if let Err(err) = $writer.write(&[AttributeSyntax::$type as u8]) {
+        if let Err(err) = $writer.write(&[DelimiterOrValueTag::$type as u8]) {
             Err(err)
         } else {
             if let Err(err) = $writer.write(&i16::to_be_bytes($name.len() as i16)) {
@@ -263,7 +261,7 @@ macro_rules! read_and_decode {
         let mut buf = vec![0u8; len as usize];
         $reader.read_exact(buf.as_mut_slice()).unwrap();
         match $attr_type {
-            AttributeSyntax::Integer => {
+            DelimiterOrValueTag::Integer => {
                 if len == 4 {
                     Ok(AttributeValue::Integer(i32::from_be_bytes([
                         buf[0], buf[1], buf[2], buf[3],
@@ -272,14 +270,14 @@ macro_rules! read_and_decode {
                     Err(())
                 }
             }
-            AttributeSyntax::Boolean => {
+            DelimiterOrValueTag::Boolean => {
                 if len == 1 {
                     Ok(AttributeValue::Boolean(buf[0] == 1))
                 } else {
                     Err(())
                 }
             }
-            AttributeSyntax::Enum => {
+            DelimiterOrValueTag::Enum => {
                 if len == 4 {
                     Ok(AttributeValue::Enum(i32::from_be_bytes([
                         buf[0], buf[1], buf[2], buf[3],
@@ -288,18 +286,18 @@ macro_rules! read_and_decode {
                     Err(())
                 }
             }
-            AttributeSyntax::OctetStringUnspecified => Ok(AttributeValue::OctetStringUnspecified(
-                String::from_utf8(buf).unwrap(),
-            )),
-            AttributeSyntax::DateTime => match DateTime::parse_buffer(buf) {
+            DelimiterOrValueTag::OctetStringUnspecified => Ok(
+                AttributeValue::OctetStringUnspecified(String::from_utf8(buf).unwrap()),
+            ),
+            DelimiterOrValueTag::DateTime => match DateTime::parse_buffer(buf) {
                 Ok(value) => Ok(AttributeValue::DateTime(value)),
                 Err(_) => Err(()),
             },
-            AttributeSyntax::Resolution => match Resolution::parse_buffer(buf) {
+            DelimiterOrValueTag::Resolution => match Resolution::parse_buffer(buf) {
                 Ok(value) => Ok(AttributeValue::Resolution(value)),
                 Err(_) => Err(()),
             },
-            AttributeSyntax::RangeOfInteger => {
+            DelimiterOrValueTag::RangeOfInteger => {
                 if len == 8 {
                     Ok(AttributeValue::RangeOfInteger(
                         i32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]])
@@ -309,39 +307,39 @@ macro_rules! read_and_decode {
                     Err(())
                 }
             }
-            AttributeSyntax::BegCollection => Ok(AttributeValue::BegCollection),
-            AttributeSyntax::TextWithLanguage => match StringWithLanguage::parse_buffer(buf) {
+            DelimiterOrValueTag::BegCollection => Ok(AttributeValue::BegCollection),
+            DelimiterOrValueTag::TextWithLanguage => match StringWithLanguage::parse_buffer(buf) {
                 Ok(value) => Ok(AttributeValue::TextWithLanguage(value)),
                 Err(_) => Err(()),
             },
-            AttributeSyntax::NameWithLanguage => match StringWithLanguage::parse_buffer(buf) {
+            DelimiterOrValueTag::NameWithLanguage => match StringWithLanguage::parse_buffer(buf) {
                 Ok(value) => Ok(AttributeValue::NameWithLanguage(value)),
                 Err(_) => Err(()),
             },
-            AttributeSyntax::EndCollection => Ok(AttributeValue::EndCollection),
-            AttributeSyntax::TextWithoutLanguage => Ok(AttributeValue::TextWithoutLanguage(
+            DelimiterOrValueTag::EndCollection => Ok(AttributeValue::EndCollection),
+            DelimiterOrValueTag::TextWithoutLanguage => Ok(AttributeValue::TextWithoutLanguage(
                 String::from_utf8(buf).unwrap(),
             )),
-            AttributeSyntax::NameWithoutLanguage => Ok(AttributeValue::NameWithoutLanguage(
+            DelimiterOrValueTag::NameWithoutLanguage => Ok(AttributeValue::NameWithoutLanguage(
                 String::from_utf8(buf).unwrap(),
             )),
-            AttributeSyntax::Keyword => {
+            DelimiterOrValueTag::Keyword => {
                 Ok(AttributeValue::Keyword(String::from_utf8(buf).unwrap()))
             }
-            AttributeSyntax::Uri => Ok(AttributeValue::Uri(String::from_utf8(buf).unwrap())),
-            AttributeSyntax::UriScheme => {
+            DelimiterOrValueTag::Uri => Ok(AttributeValue::Uri(String::from_utf8(buf).unwrap())),
+            DelimiterOrValueTag::UriScheme => {
                 Ok(AttributeValue::UriScheme(String::from_utf8(buf).unwrap()))
             }
-            AttributeSyntax::Charset => {
+            DelimiterOrValueTag::Charset => {
                 Ok(AttributeValue::Charset(String::from_utf8(buf).unwrap()))
             }
-            AttributeSyntax::NaturalLanguage => Ok(AttributeValue::NaturalLanguage(
+            DelimiterOrValueTag::NaturalLanguage => Ok(AttributeValue::NaturalLanguage(
                 String::from_utf8(buf).unwrap(),
             )),
-            AttributeSyntax::MimeMediaType => Ok(AttributeValue::MimeMediaType(
+            DelimiterOrValueTag::MimeMediaType => Ok(AttributeValue::MimeMediaType(
                 String::from_utf8(buf).unwrap(),
             )),
-            AttributeSyntax::MemberAttrName => Ok(AttributeValue::MemberAttrName(
+            DelimiterOrValueTag::MemberAttrName => Ok(AttributeValue::MemberAttrName(
                 String::from_utf8(buf).unwrap(),
             )),
             _ => Ok(AttributeValue::Unsupported(buf)),
@@ -363,16 +361,17 @@ fn parse_collection_attribute(
     let mut result = HashMap::<String, AttributeValue>::new();
 
     loop {
-        let value_tag: AttributeSyntax =
+        let value_tag: DelimiterOrValueTag =
             FromPrimitive::from_i8(read_and_decode!(reader, i8).unwrap()).unwrap();
-        if let AttributeSyntax::MemberAttrName | AttributeSyntax::EndCollection = value_tag {
+        if let DelimiterOrValueTag::MemberAttrName | DelimiterOrValueTag::EndCollection = value_tag
+        {
             read_and_decode!(reader, String).unwrap();
 
             match read_and_decode!(reader, AttributeValue::value_tag) {
                 Ok(AttributeValue::MemberAttrName(attr_name)) => {
-                    let value_tag: AttributeSyntax =
+                    let value_tag: DelimiterOrValueTag =
                         FromPrimitive::from_i8(read_and_decode!(reader, i8).unwrap()).unwrap();
-                    if let AttributeSyntax::EndCollection = value_tag {
+                    if let DelimiterOrValueTag::EndCollection = value_tag {
                         return Err(());
                     }
 
@@ -419,7 +418,7 @@ fn parse_response(data: Vec<u8>) -> Result<(), Box<dyn Error>> {
     let request_id = read_and_decode!(data, i32)?;
     println!("request-id: {}", request_id);
 
-    let mut begin_attribute_group_tag: DelimiterTag =
+    let mut begin_attribute_group_tag: DelimiterOrValueTag =
         FromPrimitive::from_i8(read_and_decode!(data, i8)?).unwrap();
 
     let mut attributes = Vec::<AttributeValue>::new();
@@ -427,7 +426,7 @@ fn parse_response(data: Vec<u8>) -> Result<(), Box<dyn Error>> {
     loop {
         println!("begin-attribute-group-tag: {:?}", begin_attribute_group_tag);
         match begin_attribute_group_tag {
-            DelimiterTag::EndOfAttributesTag => break,
+            DelimiterOrValueTag::EndOfAttributesTag => break,
             _ => (),
         };
 
@@ -439,7 +438,7 @@ fn parse_response(data: Vec<u8>) -> Result<(), Box<dyn Error>> {
                 break;
             }
 
-            let value_tag: AttributeSyntax = FromPrimitive::from_i8(value_tag_data).unwrap();
+            let value_tag: DelimiterOrValueTag = FromPrimitive::from_i8(value_tag_data).unwrap();
 
             let name = read_and_decode!(data, String)?;
             println!("name: {}", name);
@@ -483,14 +482,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     write_int_be!(buf, current_req_id as i32)?;
 
     // begin-attribute-group-tag
-    write_int_be!(buf, DelimiterTag::OperationAttributesTag as i8)?;
+    write_int_be!(buf, DelimiterOrValueTag::OperationAttributesTag as i8)?;
 
     write_attr!(buf, Charset, "attributes-charset", "utf-8")?;
     write_attr!(buf, NaturalLanguage, "attributes-natural-language", "ja-jp")?;
     write_attr!(buf, Uri, "printer-uri", format!("ipp://{}", printer_addr))?;
 
     // end-of-attributes
-    write_int_be!(buf, DelimiterTag::EndOfAttributesTag as i8)?;
+    write_int_be!(buf, DelimiterOrValueTag::EndOfAttributesTag as i8)?;
 
     let resp = client
         .post(format!("http://{}", printer_addr))
@@ -517,7 +516,7 @@ mod tests {
         write_int_be!(buf, request_id as i32).unwrap();
 
         // begin-attribute-group-tag
-        write_int_be!(buf, DelimiterTag::OperationAttributesTag as i8).unwrap();
+        write_int_be!(buf, DelimiterOrValueTag::OperationAttributesTag as i8).unwrap();
 
         write_attr!(buf, Charset, "attributes-charset", "utf-8").unwrap();
         write_attr!(buf, NaturalLanguage, "attributes-natural-language", "ja-jp").unwrap();
@@ -529,7 +528,7 @@ mod tests {
         write_attr!(buf, EndCollection, "", "").unwrap();
 
         // end-of-attributes
-        write_int_be!(buf, DelimiterTag::EndOfAttributesTag as i8).unwrap();
+        write_int_be!(buf, DelimiterOrValueTag::EndOfAttributesTag as i8).unwrap();
 
         parse_response(buf).unwrap();
     }
