@@ -498,3 +498,31 @@ fn main() -> Result<(), Box<dyn Error>> {
     let resp = resp.bytes().unwrap().to_vec();
     parse_response(resp)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_collection() {
+        let mut buf = Vec::<u8>::new();
+        buf.write(&[1u8, 1u8]).unwrap();
+        // status-code
+        write_int_be!(buf, StatusCode::SuccessfulOk as i16).unwrap();
+        // request-id
+        let request_id = 1;
+        write_int_be!(buf, request_id as i32).unwrap();
+
+        // begin-attribute-group-tag
+        write_int_be!(buf, DelimiterTag::OperationAttributesTag as i8).unwrap();
+
+        write_attr!(buf, Charset, "attributes-charset", "utf-8").unwrap();
+        write_attr!(buf, NaturalLanguage, "attributes-natural-language", "ja-jp").unwrap();
+        write_attr!(buf, Uri, "printer-uri", "ipp://192.0.2.1:631").unwrap();
+
+        // end-of-attributes
+        write_int_be!(buf, DelimiterTag::EndOfAttributesTag as i8).unwrap();
+
+        parse_response(buf).unwrap();
+    }
+}
