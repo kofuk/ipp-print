@@ -375,6 +375,9 @@ fn parse_collection_attribute(
                     if let AttributeSyntax::EndCollection = value_tag {
                         return Err(());
                     }
+
+                    read_and_decode!(reader, String).unwrap();
+
                     match read_and_decode!(reader, AttributeValue::value_tag) {
                         Ok(AttributeValue::BegCollection) => {
                             let collection_attr = parse_collection_attribute(reader).unwrap();
@@ -447,7 +450,7 @@ fn parse_response(data: Vec<u8>) -> Result<(), Box<dyn Error>> {
                 }
                 Ok(AttributeValue::BegCollection) => {
                     let collection_attr = parse_collection_attribute(&mut data).unwrap();
-                    println!("collection value: {:?}", collection_attr);
+                    println!("value: {:?}", collection_attr);
                     attributes.push(AttributeValue::CollectionAttribute(collection_attr));
                 }
                 Ok(value) => {
@@ -520,10 +523,10 @@ mod tests {
         write_attr!(buf, NaturalLanguage, "attributes-natural-language", "ja-jp").unwrap();
         write_attr!(buf, Uri, "printer-uri", "ipp://192.0.2.1:631").unwrap();
 
-        write_attr!(buf, BegCollection, "collection", "");
-        write_attr!(buf, MemberAttrName, "", "key1");
-        write_attr!(buf, Keyword, "", "value1");
-        write_attr!(buf, EndCollection, "", "");
+        write_attr!(buf, BegCollection, "collection", "").unwrap();
+        write_attr!(buf, MemberAttrName, "", "key1").unwrap();
+        write_attr!(buf, Keyword, "", "value1").unwrap();
+        write_attr!(buf, EndCollection, "", "").unwrap();
 
         // end-of-attributes
         write_int_be!(buf, DelimiterTag::EndOfAttributesTag as i8).unwrap();

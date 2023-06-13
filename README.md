@@ -2,7 +2,7 @@
 
 ## TODO
 
-- [ ] Parse collection attributes as a map (or a similar data structure)
+- [ ] Parse additional values as a vector (or a similar data structure)
 - [ ] Implement interface to access parsed data structure
     - It might be good if it has a struct which has each attribute group as member
 - [ ] Implement interface to construct data which send to a printer.
@@ -24,5 +24,5 @@ that support these standards as regular IPP devices.
 ## Reference
 
 - [RFC 8010: Internet Printing Protocol/1.1: Encoding and Transport](https://www.rfc-editor.org/rfc/rfc8010.html)
-- [Internet Printing Protocol/1.1: Model and Semantics](https://www.rfc-editor.org/rfc/inline-errata/rfc8011.html)
+- [RFC 8011: Internet Printing Protocol/1.1: Model and Semantics](https://www.rfc-editor.org/rfc/inline-errata/rfc8011.html)
 - [Driverless Printing Standards And their PDLS](https://openprinting.github.io/driverless/01-standards-and-their-pdls/)
