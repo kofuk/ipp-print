@@ -28,7 +28,7 @@ enum PrinterOperation {
     PurgeJobs = 0x0012,
 }
 
-#[derive(Debug, FromPrimitive, ToPrimitive)]
+#[derive(Debug, FromPrimitive, ToPrimitive, PartialEq, Eq)]
 #[allow(unused)]
 enum DelimiterOrValueTag {
     // delimiter-tag
@@ -354,6 +354,32 @@ macro_rules! read_and_decode {
         }
     }};
 }
+
+fn parse_attribute<R>(reader: &mut R, value_type: DelimiterOrValueTag) -> Result<(String, AttributeValue), Box<dyn Error>> where R: Read {
+    todo!();
+}
+
+fn parse_tag<R>(reader: &mut R) -> Result<DelimiterOrValueTag, Box<dyn Error>> where R: Read {
+    todo!();
+}
+
+fn parse_attribute_group<R>(reader: &mut R, attribute_group_type: DelimiterOrValueTag) -> Result<(), Box<dyn Error>> where R: Read {
+    let beg_attr_tag = parse_tag(reader)?;
+    if beg_attr_tag != attribute_group_type {
+        panic!();
+    }
+    
+    loop {
+        let tag = parse_tag(reader)?;
+        if tag == DelimiterOrValueTag::EndOfAttributesTag {
+            break;
+        }
+        let attr = parse_attribute(reader, tag);
+    }
+
+    todo!();
+}
+    
 
 fn parse_collection_attribute(
     reader: &mut dyn Read,
