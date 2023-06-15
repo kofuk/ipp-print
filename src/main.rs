@@ -355,31 +355,56 @@ macro_rules! read_and_decode {
     }};
 }
 
-fn parse_attribute<R>(reader: &mut R, value_type: DelimiterOrValueTag) -> Result<(String, AttributeValue), Box<dyn Error>> where R: Read {
+fn parse_attribute<R>(
+    reader: &mut R,
+    value_type: DelimiterOrValueTag,
+) -> Result<(String, AttributeValue), Box<dyn Error>>
+where
+    R: Read,
+{
     todo!();
 }
 
-fn parse_tag<R>(reader: &mut R) -> Result<DelimiterOrValueTag, Box<dyn Error>> where R: Read {
+fn parse_tag<R>(reader: &mut R) -> Result<DelimiterOrValueTag, Box<dyn Error>>
+where
+    R: Read,
+{
     todo!();
 }
 
-fn parse_attribute_group<R>(reader: &mut R, attribute_group_type: DelimiterOrValueTag) -> Result<(), Box<dyn Error>> where R: Read {
+fn parse_attribute_group<R>(
+    reader: &mut R,
+    attribute_group_type: DelimiterOrValueTag,
+) -> Result<Vec<(String, AttributeValue)>, Box<dyn Error>>
+where
+    R: Read,
+{
     let beg_attr_tag = parse_tag(reader)?;
     if beg_attr_tag != attribute_group_type {
         panic!();
     }
-    
+
+    let mut result = Vec::new();
+
     loop {
         let tag = parse_tag(reader)?;
-        if tag == DelimiterOrValueTag::EndOfAttributesTag {
-            break;
+        match parse_tag(reader)? {
+            DelimiterOrValueTag::EndOfAttributesTag => break,
+            DelimiterOrValueTag::OperationAttributesTag
+            | DelimiterOrValueTag::JobAttributesTag
+            | DelimiterOrValueTag::PrinterAttributesTag
+            | DelimiterOrValueTag::UnsupportedAttributesTag => panic!(),
+            _ => {
+                let attr = parse_attribute(reader, tag)?;
+                result.push(attr);
+            }
         }
-        let attr = parse_attribute(reader, tag);
     }
 
-    todo!();
+    // TODO: cope with collections and addtional values
+
+    Ok(result)
 }
-    
 
 fn parse_collection_attribute(
     reader: &mut dyn Read,
