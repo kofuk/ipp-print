@@ -369,7 +369,15 @@ fn parse_tag<R>(reader: &mut R) -> Result<DelimiterOrValueTag, Box<dyn Error>>
 where
     R: Read,
 {
-    todo!();
+    let mut buf = [0u8; 1];
+    if let Err(err) = reader.read_exact(&mut buf) {
+        panic!("{}", err);
+    };
+
+    match FromPrimitive::from_u8(buf[0]) {
+        Some(value) => Ok(value),
+        None => panic!("invalid tag: {}", buf[0]),
+    }
 }
 
 fn parse_attribute_group<R>(
