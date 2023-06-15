@@ -1,6 +1,6 @@
 use num::FromPrimitive;
 use reqwest::blocking::Client;
-use std::collections::HashMap;
+use std::collections::{HashMap, LinkedList};
 use std::error::Error;
 use std::io::prelude::*;
 use std::ops::Range;
@@ -386,35 +386,53 @@ where
 
 fn parse_attribute_group<R>(
     reader: &mut R,
-    attribute_group_type: DelimiterOrValueTag,
-) -> Result<Vec<(String, AttributeValue)>, Box<dyn Error>>
+) -> Result<Vec<(DelimiterOrValueTag, Vec<(String, AttributeValue)>)>, Box<dyn Error>>
 where
     R: Read,
 {
-    let beg_attr_tag = parse_tag(reader)?;
-    if beg_attr_tag != attribute_group_type {
-        panic!();
-    }
-
-    let mut result = Vec::new();
+    let mut cur_attr_tag = parse_tag(reader)?;
+    let mut attr_groups = Vec::new();
 
     loop {
-        match parse_tag(reader)? {
-            DelimiterOrValueTag::EndOfAttributesTag => break,
-            DelimiterOrValueTag::OperationAttributesTag
-            | DelimiterOrValueTag::JobAttributesTag
-            | DelimiterOrValueTag::PrinterAttributesTag
-            | DelimiterOrValueTag::UnsupportedAttributesTag => panic!(),
-            tag => {
-                let attr = parse_attribute(reader, tag)?;
-                result.push(attr);
+        let mut attrs = LinkedList::new();
+        let next_attr_tag;
+        let mut end = false;
+
+        loop {
+            let tag = parse_tag(reader)?;
+
+            match tag {
+                DelimiterOrValueTag::EndOfAttributesTag => {
+                    next_attr_tag = tag;
+                    end = true;
+                    break;
+                }
+                DelimiterOrValueTag::OperationAttributesTag
+                | DelimiterOrValueTag::JobAttributesTag
+                | DelimiterOrValueTag::PrinterAttributesTag
+                | DelimiterOrValueTag::UnsupportedAttributesTag => {
+                    next_attr_tag = tag;
+                    break;
+                }
+                tag => attrs.push_back(parse_attribute(reader, tag)?),
             }
         }
+
+        let mut group = Vec::new();
+
+        while !attrs.is_empty() {
+            group.push(attrs.pop_front().unwrap());
+        }
+
+        attr_groups.push((cur_attr_tag, group));
+        if end {
+            break;
+        }
+
+        cur_attr_tag = next_attr_tag;
     }
 
-    // TODO: cope with collections and addtional values
-
-    Ok(result)
+    Ok(attr_groups)
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -451,7 +469,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .send()?;
 
     let resp = resp.bytes().unwrap().to_vec();
-    parse_attribute_group(&mut &resp[..], DelimiterOrValueTag::OperationAttributesTag)?;
+    parse_attribute_group(&mut &resp[8..])?;
 
     Ok(())
 }
@@ -480,10 +498,8 @@ mod tests {
         write_int_be!(buf, DelimiterOrValueTag::EndOfAttributesTag as i8).unwrap();
 
         let mut reader = &buf[..];
-        let attr_group =
-            parse_attribute_group(&mut reader, DelimiterOrValueTag::OperationAttributesTag)
-                .unwrap();
+        let attr_groups = parse_attribute_group(&mut reader).unwrap();
 
-        assert_eq!(attr_group.len(), 4);
+        assert_eq!(attr_groups.len(), 1);
     }
 }
