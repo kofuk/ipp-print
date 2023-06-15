@@ -462,14 +462,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     // end-of-attributes
     write_int_be!(buf, DelimiterOrValueTag::EndOfAttributesTag as i8)?;
 
-    let resp = client
+    let mut resp = client
         .post(format!("http://{}", printer_addr))
         .header("Content-Type", "application/ipp")
         .body(buf)
         .send()?;
 
-    let resp = resp.bytes().unwrap().to_vec();
-    parse_attribute_group(&mut &resp[8..])?;
+    let mut buf = [0u8; 8];
+    resp.read_exact(&mut buf).unwrap();
+    parse_attribute_group(&mut resp)?;
 
     Ok(())
 }
