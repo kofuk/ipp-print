@@ -104,7 +104,7 @@ enum StatusCode {
     ServerErrorMultipleDocumentJobsNotSupported = 0x0509,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[allow(unused)]
 struct StringWithLanguage {
     lang: String,
@@ -136,7 +136,7 @@ impl StringWithLanguage {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[allow(unused)]
 struct Resolution {
     resolution_cross_feed: i32,
@@ -158,7 +158,7 @@ impl Resolution {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[allow(unused)]
 struct DateTime {
     year: u16,
@@ -193,7 +193,7 @@ impl DateTime {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 enum AttributeValue {
     Unsupported(Vec<u8>),
     Unknown(Vec<u8>),
@@ -394,7 +394,7 @@ where
     let mut attr_groups = Vec::new();
 
     loop {
-        let mut attrs = LinkedList::new();
+        let mut attrs = LinkedList::<(String, AttributeValue)>::new();
         let next_attr_tag;
         let mut end = false;
 
@@ -414,15 +414,50 @@ where
                     next_attr_tag = tag;
                     break;
                 }
+                DelimiterOrValueTag::BegCollection => {
+                    let (name, _) = parse_attribute(reader, tag)?;
+
+                    let mut map = HashMap::<String, AttributeValue>::new();
+                    loop {
+                        // TODO: support recursive collection
+
+                        let attr_name = match parse_tag(reader)? {
+                            DelimiterOrValueTag::EndCollection => break,
+                            DelimiterOrValueTag::MemberAttrName => {
+                                if let (_, AttributeValue::MemberAttrName(name)) =
+                                    parse_attribute(reader, DelimiterOrValueTag::MemberAttrName)?
+                                {
+                                    name
+                                } else {
+                                    panic!();
+                                }
+                            }
+                            _ => panic!(),
+                        };
+
+                        let value = match parse_tag(reader)? {
+                            DelimiterOrValueTag::OperationAttributesTag
+                            | DelimiterOrValueTag::JobAttributesTag
+                            | DelimiterOrValueTag::PrinterAttributesTag
+                            | DelimiterOrValueTag::UnsupportedAttributesTag => {
+                                panic!();
+                            }
+                            tag => {
+                                let (_, attr) = parse_attribute(reader, tag)?;
+                                attr
+                            }
+                        };
+
+                        map.insert(attr_name, value);
+                    }
+
+                    attrs.push_back((name, AttributeValue::CollectionAttribute(map)));
+                }
                 tag => attrs.push_back(parse_attribute(reader, tag)?),
             }
         }
 
-        let mut group = Vec::new();
-
-        while !attrs.is_empty() {
-            group.push(attrs.pop_front().unwrap());
-        }
+        let group = Vec::new();
 
         attr_groups.push((cur_attr_tag, group));
         if end {
