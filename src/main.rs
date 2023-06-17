@@ -243,6 +243,304 @@ struct IPPResponse {
     data: Vec<u8>,
 }
 
+impl IPPResponse {
+    fn decode_attribute_value(
+        value_type: DelimiterOrValueTag,
+        buf: Vec<u8>,
+    ) -> Result<AttributeValue, Box<dyn Error>> {
+        match value_type {
+            DelimiterOrValueTag::Unsupported => Ok(AttributeValue::Unsupported(buf)),
+            DelimiterOrValueTag::Unknown => Ok(AttributeValue::Unknown(buf)),
+            DelimiterOrValueTag::NoValue => {
+                if buf.is_empty() {
+                    Ok(AttributeValue::NoValue)
+                } else {
+                    panic!();
+                }
+            }
+            DelimiterOrValueTag::Integer => {
+                if buf.len() == 4 {
+                    Ok(AttributeValue::Integer(i32::from_be_bytes([
+                        buf[0], buf[1], buf[2], buf[3],
+                    ])))
+                } else {
+                    panic!();
+                }
+            }
+            DelimiterOrValueTag::Boolean => {
+                if buf.len() == 1 {
+                    Ok(AttributeValue::Boolean(buf[0] == 1u8))
+                } else {
+                    panic!();
+                }
+            }
+            DelimiterOrValueTag::Enum => {
+                if buf.len() == 4 {
+                    Ok(AttributeValue::Enum(i32::from_be_bytes([
+                        buf[0], buf[1], buf[2], buf[3],
+                    ])))
+                } else {
+                    panic!();
+                }
+            }
+            DelimiterOrValueTag::OctetStringUnspecified => Ok(
+                AttributeValue::OctetStringUnspecified(String::from_utf8(buf)?),
+            ),
+            DelimiterOrValueTag::DateTime => {
+                Ok(AttributeValue::DateTime(DateTime::parse_buffer(buf)?))
+            }
+            DelimiterOrValueTag::Resolution => {
+                Ok(AttributeValue::Resolution(Resolution::parse_buffer(buf)?))
+            }
+            DelimiterOrValueTag::RangeOfInteger => {
+                if buf.len() != 8 {
+                    panic!();
+                }
+                let start = i32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
+                let end = i32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
+
+                Ok(AttributeValue::RangeOfInteger(start..end))
+            }
+            DelimiterOrValueTag::BegCollection => {
+                if !buf.is_empty() {
+                    panic!();
+                }
+                Ok(AttributeValue::BegCollection)
+            }
+            DelimiterOrValueTag::TextWithLanguage => Ok(AttributeValue::TextWithLanguage(
+                StringWithLanguage::parse_buffer(buf)?,
+            )),
+            DelimiterOrValueTag::NameWithLanguage => Ok(AttributeValue::NameWithLanguage(
+                StringWithLanguage::parse_buffer(buf)?,
+            )),
+            DelimiterOrValueTag::EndCollection => {
+                if !buf.is_empty() {
+                    panic!();
+                }
+                Ok(AttributeValue::EndCollection)
+            }
+            DelimiterOrValueTag::TextWithoutLanguage => {
+                Ok(AttributeValue::TextWithoutLanguage(String::from_utf8(buf)?))
+            }
+            DelimiterOrValueTag::NameWithoutLanguage => {
+                Ok(AttributeValue::NameWithoutLanguage(String::from_utf8(buf)?))
+            }
+            DelimiterOrValueTag::Keyword => Ok(AttributeValue::Keyword(String::from_utf8(buf)?)),
+            DelimiterOrValueTag::Uri => Ok(AttributeValue::Uri(String::from_utf8(buf)?)),
+            DelimiterOrValueTag::UriScheme => {
+                Ok(AttributeValue::UriScheme(String::from_utf8(buf)?))
+            }
+            DelimiterOrValueTag::Charset => Ok(AttributeValue::Charset(String::from_utf8(buf)?)),
+            DelimiterOrValueTag::NaturalLanguage => {
+                Ok(AttributeValue::NaturalLanguage(String::from_utf8(buf)?))
+            }
+            DelimiterOrValueTag::MimeMediaType => {
+                Ok(AttributeValue::MimeMediaType(String::from_utf8(buf)?))
+            }
+            DelimiterOrValueTag::MemberAttrName => {
+                Ok(AttributeValue::MemberAttrName(String::from_utf8(buf)?))
+            }
+
+            _ => panic!(),
+        }
+    }
+
+    fn parse_attribute<R>(
+        reader: &mut R,
+        value_type: DelimiterOrValueTag,
+    ) -> Result<(String, AttributeValue), Box<dyn Error>>
+    where
+        R: Read,
+    {
+        let mut buf = [0u8; 2];
+        reader.read_exact(&mut buf)?;
+        let name_len = i16::from_be_bytes(buf);
+        let mut name_buf = vec![0u8; name_len as usize];
+        reader.read_exact(name_buf.as_mut_slice())?;
+        let name = String::from_utf8(name_buf)?;
+
+        reader.read_exact(&mut buf)?;
+        let value_len = i16::from_be_bytes(buf);
+        let mut value_buf = vec![0u8; value_len as usize];
+        reader.read_exact(value_buf.as_mut_slice())?;
+
+        let value = IPPResponse::decode_attribute_value(value_type, value_buf)?;
+
+        Ok((name, value))
+    }
+
+    fn parse_tag<R>(reader: &mut R) -> Result<DelimiterOrValueTag, Box<dyn Error>>
+    where
+        R: Read,
+    {
+        let mut buf = [0u8; 1];
+        reader.read_exact(&mut buf)?;
+
+        match FromPrimitive::from_u8(buf[0]) {
+            Some(value) => Ok(value),
+            None => panic!("invalid tag: {}", buf[0]),
+        }
+    }
+
+    fn parse_collection<R>(reader: &mut R) -> Result<AttributeValue, Box<dyn Error>>
+    where
+        R: Read,
+    {
+        let mut map = HashMap::<String, AttributeValue>::new();
+        loop {
+            let attr_name = match IPPResponse::parse_tag(reader)? {
+                DelimiterOrValueTag::EndCollection => {
+                    IPPResponse::parse_attribute(reader, DelimiterOrValueTag::EndCollection)?;
+                    break;
+                }
+                DelimiterOrValueTag::MemberAttrName => {
+                    if let (_, AttributeValue::MemberAttrName(name)) =
+                        IPPResponse::parse_attribute(reader, DelimiterOrValueTag::MemberAttrName)?
+                    {
+                        name
+                    } else {
+                        panic!();
+                    }
+                }
+                _ => panic!(),
+            };
+
+            let value = match IPPResponse::parse_tag(reader)? {
+                DelimiterOrValueTag::OperationAttributesTag
+                | DelimiterOrValueTag::JobAttributesTag
+                | DelimiterOrValueTag::PrinterAttributesTag
+                | DelimiterOrValueTag::UnsupportedAttributesTag => {
+                    panic!();
+                }
+                DelimiterOrValueTag::BegCollection => {
+                    IPPResponse::parse_attribute(reader, DelimiterOrValueTag::BegCollection)?;
+                    IPPResponse::parse_collection(reader)?
+                }
+                tag => {
+                    let (_, attr) = IPPResponse::parse_attribute(reader, tag)?;
+                    attr
+                }
+            };
+
+            map.insert(attr_name, value);
+        }
+
+        Ok(AttributeValue::CollectionAttribute(map))
+    }
+
+    fn parse_attribute_group<R>(
+        reader: &mut R,
+    ) -> Result<Vec<(DelimiterOrValueTag, Vec<(String, AttributeValue)>)>, Box<dyn Error>>
+    where
+        R: Read,
+    {
+        let mut cur_attr_tag = IPPResponse::parse_tag(reader)?;
+        let mut attr_groups = Vec::new();
+
+        loop {
+            let mut attrs = LinkedList::<(String, AttributeValue)>::new();
+            let next_attr_tag;
+            let mut end = false;
+
+            loop {
+                let tag = IPPResponse::parse_tag(reader)?;
+
+                match tag {
+                    DelimiterOrValueTag::EndOfAttributesTag => {
+                        next_attr_tag = tag;
+                        end = true;
+                        break;
+                    }
+                    DelimiterOrValueTag::OperationAttributesTag
+                    | DelimiterOrValueTag::JobAttributesTag
+                    | DelimiterOrValueTag::PrinterAttributesTag
+                    | DelimiterOrValueTag::UnsupportedAttributesTag => {
+                        next_attr_tag = tag;
+                        break;
+                    }
+                    DelimiterOrValueTag::BegCollection => {
+                        let (name, _) = IPPResponse::parse_attribute(reader, tag)?;
+                        attrs.push_back((name, IPPResponse::parse_collection(reader)?));
+                    }
+                    _ => attrs.push_back(IPPResponse::parse_attribute(reader, tag)?),
+                }
+            }
+
+            let mut group = Vec::new();
+
+            let mut attr_vec = vec![];
+
+            // Convert additional-values to vector.
+            while !attrs.is_empty() {
+                let attr = attrs.pop_front().unwrap();
+
+                loop {
+                    let next = attrs.iter_mut().nth(0);
+                    if next.is_some() {
+                        let next = next.unwrap();
+                        if next.0.len() == 0 {
+                            if attr_vec.is_empty() {
+                                attr_vec.push(attr.1.clone());
+                            }
+                            attr_vec.push(attrs.pop_front().unwrap().1);
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+
+                if attr_vec.is_empty() {
+                    group.push(attr);
+                } else {
+                    group.push((attr.0, AttributeValue::VectorAttribute(attr_vec)));
+                    attr_vec = vec![];
+                }
+            }
+
+            attr_groups.push((cur_attr_tag, group));
+            if end {
+                break;
+            }
+
+            cur_attr_tag = next_attr_tag;
+        }
+
+        Ok(attr_groups)
+    }
+
+    pub fn read_from_stream<R>(reader: &mut R) -> Result<IPPResponse, Box<dyn Error>>
+    where
+        R: Read,
+    {
+        let mut buf = [0u8; 8];
+        reader.read_exact(&mut buf)?;
+        let version_major = buf[0] as i8;
+        let version_minor = buf[1] as i8;
+        let status_code: StatusCode =
+            match FromPrimitive::from_i16(i16::from_be_bytes([buf[2], buf[3]])) {
+                Some(status_code) => status_code,
+                None => panic!(),
+            };
+        let request_id = i32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
+
+        let attrs = IPPResponse::parse_attribute_group(reader)?;
+
+        let mut data = Vec::<u8>::new();
+        reader.read_to_end(&mut data)?;
+
+        Ok(IPPResponse {
+            version_major,
+            version_minor,
+            status_code,
+            request_id,
+            attrs,
+            data,
+        })
+    }
+}
+
 macro_rules! write_int_be {
     ($writer:ident,$var:path as $ty:ident) => {{
         let data = $ty::to_be_bytes($var as $ty);
@@ -270,298 +568,6 @@ macro_rules! write_attr {
             }
         }
     };
-}
-
-fn decode_attribute_value(
-    value_type: DelimiterOrValueTag,
-    buf: Vec<u8>,
-) -> Result<AttributeValue, Box<dyn Error>> {
-    match value_type {
-        DelimiterOrValueTag::Unsupported => Ok(AttributeValue::Unsupported(buf)),
-        DelimiterOrValueTag::Unknown => Ok(AttributeValue::Unknown(buf)),
-        DelimiterOrValueTag::NoValue => {
-            if buf.is_empty() {
-                Ok(AttributeValue::NoValue)
-            } else {
-                panic!();
-            }
-        }
-        DelimiterOrValueTag::Integer => {
-            if buf.len() == 4 {
-                Ok(AttributeValue::Integer(i32::from_be_bytes([
-                    buf[0], buf[1], buf[2], buf[3],
-                ])))
-            } else {
-                panic!();
-            }
-        }
-        DelimiterOrValueTag::Boolean => {
-            if buf.len() == 1 {
-                Ok(AttributeValue::Boolean(buf[0] == 1u8))
-            } else {
-                panic!();
-            }
-        }
-        DelimiterOrValueTag::Enum => {
-            if buf.len() == 4 {
-                Ok(AttributeValue::Enum(i32::from_be_bytes([
-                    buf[0], buf[1], buf[2], buf[3],
-                ])))
-            } else {
-                panic!();
-            }
-        }
-        DelimiterOrValueTag::OctetStringUnspecified => Ok(AttributeValue::OctetStringUnspecified(
-            String::from_utf8(buf)?,
-        )),
-        DelimiterOrValueTag::DateTime => Ok(AttributeValue::DateTime(DateTime::parse_buffer(buf)?)),
-        DelimiterOrValueTag::Resolution => {
-            Ok(AttributeValue::Resolution(Resolution::parse_buffer(buf)?))
-        }
-        DelimiterOrValueTag::RangeOfInteger => {
-            if buf.len() != 8 {
-                panic!();
-            }
-            let start = i32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
-            let end = i32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
-
-            Ok(AttributeValue::RangeOfInteger(start..end))
-        }
-        DelimiterOrValueTag::BegCollection => {
-            if !buf.is_empty() {
-                panic!();
-            }
-            Ok(AttributeValue::BegCollection)
-        }
-        DelimiterOrValueTag::TextWithLanguage => Ok(AttributeValue::TextWithLanguage(
-            StringWithLanguage::parse_buffer(buf)?,
-        )),
-        DelimiterOrValueTag::NameWithLanguage => Ok(AttributeValue::NameWithLanguage(
-            StringWithLanguage::parse_buffer(buf)?,
-        )),
-        DelimiterOrValueTag::EndCollection => {
-            if !buf.is_empty() {
-                panic!();
-            }
-            Ok(AttributeValue::EndCollection)
-        }
-        DelimiterOrValueTag::TextWithoutLanguage => {
-            Ok(AttributeValue::TextWithoutLanguage(String::from_utf8(buf)?))
-        }
-        DelimiterOrValueTag::NameWithoutLanguage => {
-            Ok(AttributeValue::NameWithoutLanguage(String::from_utf8(buf)?))
-        }
-        DelimiterOrValueTag::Keyword => Ok(AttributeValue::Keyword(String::from_utf8(buf)?)),
-        DelimiterOrValueTag::Uri => Ok(AttributeValue::Uri(String::from_utf8(buf)?)),
-        DelimiterOrValueTag::UriScheme => Ok(AttributeValue::UriScheme(String::from_utf8(buf)?)),
-        DelimiterOrValueTag::Charset => Ok(AttributeValue::Charset(String::from_utf8(buf)?)),
-        DelimiterOrValueTag::NaturalLanguage => {
-            Ok(AttributeValue::NaturalLanguage(String::from_utf8(buf)?))
-        }
-        DelimiterOrValueTag::MimeMediaType => {
-            Ok(AttributeValue::MimeMediaType(String::from_utf8(buf)?))
-        }
-        DelimiterOrValueTag::MemberAttrName => {
-            Ok(AttributeValue::MemberAttrName(String::from_utf8(buf)?))
-        }
-
-        _ => panic!(),
-    }
-}
-
-fn parse_attribute<R>(
-    reader: &mut R,
-    value_type: DelimiterOrValueTag,
-) -> Result<(String, AttributeValue), Box<dyn Error>>
-where
-    R: Read,
-{
-    let mut buf = [0u8; 2];
-    reader.read_exact(&mut buf)?;
-    let name_len = i16::from_be_bytes(buf);
-    let mut name_buf = vec![0u8; name_len as usize];
-    reader.read_exact(name_buf.as_mut_slice())?;
-    let name = String::from_utf8(name_buf)?;
-
-    reader.read_exact(&mut buf)?;
-    let value_len = i16::from_be_bytes(buf);
-    let mut value_buf = vec![0u8; value_len as usize];
-    reader.read_exact(value_buf.as_mut_slice())?;
-
-    let value = decode_attribute_value(value_type, value_buf)?;
-
-    Ok((name, value))
-}
-
-fn parse_tag<R>(reader: &mut R) -> Result<DelimiterOrValueTag, Box<dyn Error>>
-where
-    R: Read,
-{
-    let mut buf = [0u8; 1];
-    reader.read_exact(&mut buf)?;
-
-    match FromPrimitive::from_u8(buf[0]) {
-        Some(value) => Ok(value),
-        None => panic!("invalid tag: {}", buf[0]),
-    }
-}
-
-fn parse_collection<R>(reader: &mut R) -> Result<AttributeValue, Box<dyn Error>>
-where
-    R: Read,
-{
-    let mut map = HashMap::<String, AttributeValue>::new();
-    loop {
-        let attr_name = match parse_tag(reader)? {
-            DelimiterOrValueTag::EndCollection => {
-                parse_attribute(reader, DelimiterOrValueTag::EndCollection)?;
-                break;
-            }
-            DelimiterOrValueTag::MemberAttrName => {
-                if let (_, AttributeValue::MemberAttrName(name)) =
-                    parse_attribute(reader, DelimiterOrValueTag::MemberAttrName)?
-                {
-                    name
-                } else {
-                    panic!();
-                }
-            }
-            _ => panic!(),
-        };
-
-        let value = match parse_tag(reader)? {
-            DelimiterOrValueTag::OperationAttributesTag
-            | DelimiterOrValueTag::JobAttributesTag
-            | DelimiterOrValueTag::PrinterAttributesTag
-            | DelimiterOrValueTag::UnsupportedAttributesTag => {
-                panic!();
-            }
-            DelimiterOrValueTag::BegCollection => {
-                parse_attribute(reader, DelimiterOrValueTag::BegCollection)?;
-                parse_collection(reader)?
-            }
-            tag => {
-                let (_, attr) = parse_attribute(reader, tag)?;
-                attr
-            }
-        };
-
-        map.insert(attr_name, value);
-    }
-
-    Ok(AttributeValue::CollectionAttribute(map))
-}
-
-fn parse_attribute_group<R>(
-    reader: &mut R,
-) -> Result<Vec<(DelimiterOrValueTag, Vec<(String, AttributeValue)>)>, Box<dyn Error>>
-where
-    R: Read,
-{
-    let mut cur_attr_tag = parse_tag(reader)?;
-    let mut attr_groups = Vec::new();
-
-    loop {
-        let mut attrs = LinkedList::<(String, AttributeValue)>::new();
-        let next_attr_tag;
-        let mut end = false;
-
-        loop {
-            let tag = parse_tag(reader)?;
-
-            match tag {
-                DelimiterOrValueTag::EndOfAttributesTag => {
-                    next_attr_tag = tag;
-                    end = true;
-                    break;
-                }
-                DelimiterOrValueTag::OperationAttributesTag
-                | DelimiterOrValueTag::JobAttributesTag
-                | DelimiterOrValueTag::PrinterAttributesTag
-                | DelimiterOrValueTag::UnsupportedAttributesTag => {
-                    next_attr_tag = tag;
-                    break;
-                }
-                DelimiterOrValueTag::BegCollection => {
-                    let (name, _) = parse_attribute(reader, tag)?;
-                    attrs.push_back((name, parse_collection(reader)?));
-                }
-                _ => attrs.push_back(parse_attribute(reader, tag)?),
-            }
-        }
-
-        let mut group = Vec::new();
-
-        let mut attr_vec = vec![];
-
-        // Convert additional-values to vector.
-        while !attrs.is_empty() {
-            let attr = attrs.pop_front().unwrap();
-
-            loop {
-                let next = attrs.iter_mut().nth(0);
-                if next.is_some() {
-                    let next = next.unwrap();
-                    if next.0.len() == 0 {
-                        if attr_vec.is_empty() {
-                            attr_vec.push(attr.1.clone());
-                        }
-                        attr_vec.push(attrs.pop_front().unwrap().1);
-                    } else {
-                        break;
-                    }
-                } else {
-                    break;
-                }
-            }
-
-            if attr_vec.is_empty() {
-                group.push(attr);
-            } else {
-                group.push((attr.0, AttributeValue::VectorAttribute(attr_vec)));
-                attr_vec = vec![];
-            }
-        }
-
-        attr_groups.push((cur_attr_tag, group));
-        if end {
-            break;
-        }
-
-        cur_attr_tag = next_attr_tag;
-    }
-
-    Ok(attr_groups)
-}
-
-fn parse_response<R>(reader: &mut R) -> Result<IPPResponse, Box<dyn Error>>
-where
-    R: Read,
-{
-    let mut buf = [0u8; 8];
-    reader.read_exact(&mut buf)?;
-    let version_major = buf[0] as i8;
-    let version_minor = buf[1] as i8;
-    let status_code: StatusCode =
-        match FromPrimitive::from_i16(i16::from_be_bytes([buf[2], buf[3]])) {
-            Some(status_code) => status_code,
-            None => panic!(),
-        };
-    let request_id = i32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
-
-    let attrs = parse_attribute_group(reader)?;
-
-    let mut data = Vec::<u8>::new();
-    reader.read_to_end(&mut data)?;
-
-    Ok(IPPResponse {
-        version_major,
-        version_minor,
-        status_code,
-        request_id,
-        attrs,
-        data,
-    })
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -597,7 +603,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .body(buf)
         .send()?;
 
-    println!("{:?}", parse_response(&mut resp)?);
+    println!("{:?}", IPPResponse::read_from_stream(&mut resp)?);
 
     Ok(())
 }
@@ -644,7 +650,7 @@ mod tests {
         write_int_be!(buf, DelimiterOrValueTag::EndOfAttributesTag as i8).unwrap();
 
         let mut reader = &buf[..];
-        let response = parse_response(&mut reader).unwrap();
+        let response = IPPResponse::read_from_stream(&mut reader).unwrap();
 
         let expected_resp = IPPResponse {
             version_major: 1,
