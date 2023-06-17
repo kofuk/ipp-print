@@ -384,6 +384,52 @@ where
     }
 }
 
+fn parse_collection<R>(reader: &mut R) -> Result<AttributeValue, Box<dyn Error>>
+where
+    R: Read,
+{
+    let mut map = HashMap::<String, AttributeValue>::new();
+    loop {
+        let attr_name = match parse_tag(reader)? {
+            DelimiterOrValueTag::EndCollection => {
+                parse_attribute(reader, DelimiterOrValueTag::EndCollection)?;
+                break;
+            }
+            DelimiterOrValueTag::MemberAttrName => {
+                if let (_, AttributeValue::MemberAttrName(name)) =
+                    parse_attribute(reader, DelimiterOrValueTag::MemberAttrName)?
+                {
+                    name
+                } else {
+                    panic!();
+                }
+            }
+            _ => panic!(),
+        };
+
+        let value = match parse_tag(reader)? {
+            DelimiterOrValueTag::OperationAttributesTag
+            | DelimiterOrValueTag::JobAttributesTag
+            | DelimiterOrValueTag::PrinterAttributesTag
+            | DelimiterOrValueTag::UnsupportedAttributesTag => {
+                panic!();
+            }
+            DelimiterOrValueTag::BegCollection => {
+                parse_attribute(reader, DelimiterOrValueTag::BegCollection)?;
+                parse_collection(reader)?
+            }
+            tag => {
+                let (_, attr) = parse_attribute(reader, tag)?;
+                attr
+            }
+        };
+
+        map.insert(attr_name, value);
+    }
+
+    Ok(AttributeValue::CollectionAttribute(map))
+}
+
 fn parse_attribute_group<R>(
     reader: &mut R,
 ) -> Result<Vec<(DelimiterOrValueTag, Vec<(String, AttributeValue)>)>, Box<dyn Error>>
@@ -416,48 +462,17 @@ where
                 }
                 DelimiterOrValueTag::BegCollection => {
                     let (name, _) = parse_attribute(reader, tag)?;
-
-                    let mut map = HashMap::<String, AttributeValue>::new();
-                    loop {
-                        // TODO: support recursive collection
-
-                        let attr_name = match parse_tag(reader)? {
-                            DelimiterOrValueTag::EndCollection => break,
-                            DelimiterOrValueTag::MemberAttrName => {
-                                if let (_, AttributeValue::MemberAttrName(name)) =
-                                    parse_attribute(reader, DelimiterOrValueTag::MemberAttrName)?
-                                {
-                                    name
-                                } else {
-                                    panic!();
-                                }
-                            }
-                            _ => panic!(),
-                        };
-
-                        let value = match parse_tag(reader)? {
-                            DelimiterOrValueTag::OperationAttributesTag
-                            | DelimiterOrValueTag::JobAttributesTag
-                            | DelimiterOrValueTag::PrinterAttributesTag
-                            | DelimiterOrValueTag::UnsupportedAttributesTag => {
-                                panic!();
-                            }
-                            tag => {
-                                let (_, attr) = parse_attribute(reader, tag)?;
-                                attr
-                            }
-                        };
-
-                        map.insert(attr_name, value);
-                    }
-
-                    attrs.push_back((name, AttributeValue::CollectionAttribute(map)));
+                    attrs.push_back((name, parse_collection(reader)?));
                 }
-                tag => attrs.push_back(parse_attribute(reader, tag)?),
+                _ => attrs.push_back(parse_attribute(reader, tag)?),
             }
         }
 
-        let group = Vec::new();
+        let mut group = Vec::new();
+
+        while !attrs.is_empty() {
+            group.push(attrs.pop_back().unwrap());
+        }
 
         attr_groups.push((cur_attr_tag, group));
         if end {
@@ -505,7 +520,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut buf = [0u8; 8];
     resp.read_exact(&mut buf).unwrap();
-    parse_attribute_group(&mut resp)?;
+    println!("{:?}", parse_attribute_group(&mut resp)?);
 
     Ok(())
 }
@@ -526,8 +541,16 @@ mod tests {
         write_attr!(buf, Uri, "printer-uri", "ipp://192.0.2.1:631").unwrap();
 
         write_attr!(buf, BegCollection, "collection", "").unwrap();
+
         write_attr!(buf, MemberAttrName, "", "key1").unwrap();
         write_attr!(buf, Keyword, "", "value1").unwrap();
+
+        write_attr!(buf, MemberAttrName, "", "key2").unwrap();
+        write_attr!(buf, BegCollection, "", "").unwrap();
+        write_attr!(buf, MemberAttrName, "", "key2-1").unwrap();
+        write_attr!(buf, Keyword, "", "value2-1").unwrap();
+        write_attr!(buf, EndCollection, "", "").unwrap();
+
         write_attr!(buf, EndCollection, "", "").unwrap();
 
         // end-of-attributes
