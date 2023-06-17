@@ -104,7 +104,7 @@ enum StatusCode {
     ServerErrorMultipleDocumentJobsNotSupported = 0x0509,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[allow(unused)]
 struct StringWithLanguage {
     lang: String,
@@ -136,7 +136,7 @@ impl StringWithLanguage {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[allow(unused)]
 struct Resolution {
     resolution_cross_feed: i32,
@@ -158,7 +158,7 @@ impl Resolution {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[allow(unused)]
 struct DateTime {
     year: u16,
@@ -193,7 +193,7 @@ impl DateTime {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 enum AttributeValue {
     Unsupported(Vec<u8>),
     Unknown(Vec<u8>),
@@ -219,6 +219,7 @@ enum AttributeValue {
     MimeMediaType(String),
     MemberAttrName(String),
     CollectionAttribute(HashMap<String, AttributeValue>),
+    VectorAttribute(Vec<AttributeValue>),
 }
 
 macro_rules! write_int_be {
@@ -470,8 +471,35 @@ where
 
         let mut group = Vec::new();
 
+        let mut attr_vec = vec![];
+
+        // Convert additional-values to vector.
         while !attrs.is_empty() {
-            group.push(attrs.pop_back().unwrap());
+            let attr = attrs.pop_front().unwrap();
+
+            loop {
+                let next = attrs.iter_mut().nth(0);
+                if next.is_some() {
+                    let next = next.unwrap();
+                    if next.0.len() == 0 {
+                        if attr_vec.is_empty() {
+                            attr_vec.push(attr.1.clone());
+                        }
+                        attr_vec.push(attrs.pop_front().unwrap().1);
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            if attr_vec.is_empty() {
+                group.push(attr);
+            } else {
+                group.push((attr.0, AttributeValue::VectorAttribute(attr_vec)));
+                attr_vec = vec![];
+            }
         }
 
         attr_groups.push((cur_attr_tag, group));
@@ -539,6 +567,8 @@ mod tests {
         write_attr!(buf, Charset, "attributes-charset", "utf-8").unwrap();
         write_attr!(buf, NaturalLanguage, "attributes-natural-language", "ja-jp").unwrap();
         write_attr!(buf, Uri, "printer-uri", "ipp://192.0.2.1:631").unwrap();
+        write_attr!(buf, Uri, "", "ipp://192.0.2.2:631").unwrap();
+        write_attr!(buf, Uri, "", "ipp://192.0.2.3:631").unwrap();
 
         write_attr!(buf, BegCollection, "collection", "").unwrap();
 
