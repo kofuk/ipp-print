@@ -8,6 +8,7 @@ use std::ops::Range;
 #[macro_use]
 extern crate num_derive;
 
+#[derive(Debug, FromPrimitive, ToPrimitive, PartialEq, Eq)]
 #[allow(unused)]
 enum PrinterOperation {
     PrintJob = 0x0002,
@@ -67,7 +68,7 @@ enum DelimiterOrValueTag {
     MemberAttrName = 0x4a,
 }
 
-#[derive(Debug, FromPrimitive, ToPrimitive)]
+#[derive(Debug, FromPrimitive, ToPrimitive, PartialEq, Eq)]
 #[allow(unused)]
 enum StatusCode {
     SuccessfulOk = 0x0000,
@@ -222,7 +223,17 @@ enum AttributeValue {
     VectorAttribute(Vec<AttributeValue>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
+struct IPPRequest {
+    version_major: i8,
+    version_minor: i8,
+    operation_id: PrinterOperation,
+    request_id: i32,
+    attrs: Vec<(DelimiterOrValueTag, Vec<(String, AttributeValue)>)>,
+    data: Vec<u8>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 struct IPPResponse {
     version_major: i8,
     version_minor: i8,
@@ -612,7 +623,7 @@ mod tests {
 
         write_attr!(buf, Charset, "attributes-charset", "utf-8").unwrap();
         write_attr!(buf, NaturalLanguage, "attributes-natural-language", "ja-jp").unwrap();
-        write_attr!(buf, Uri, "printer-uri", "ipp://192.0.2.1:631").unwrap();
+        write_attr!(buf, Uri, "array", "ipp://192.0.2.1:631").unwrap();
         write_attr!(buf, Uri, "", "ipp://192.0.2.2:631").unwrap();
         write_attr!(buf, Uri, "", "ipp://192.0.2.3:631").unwrap();
 
@@ -635,6 +646,59 @@ mod tests {
         let mut reader = &buf[..];
         let response = parse_response(&mut reader).unwrap();
 
-        assert_eq!(response.attrs.len(), 1);
+        let expected_resp = IPPResponse {
+            version_major: 1,
+            version_minor: 1,
+            status_code: StatusCode::SuccessfulOk,
+            request_id: req_id,
+            attrs: vec![(
+                DelimiterOrValueTag::OperationAttributesTag,
+                vec![
+                    (
+                        "attributes-charset".to_string(),
+                        AttributeValue::Charset("utf-8".to_string()),
+                    ),
+                    (
+                        "attributes-natural-language".to_string(),
+                        AttributeValue::NaturalLanguage("ja-jp".to_string()),
+                    ),
+                    (
+                        "array".to_string(),
+                        AttributeValue::VectorAttribute(vec![
+                            AttributeValue::Uri("ipp://192.0.2.1:631".to_string()),
+                            AttributeValue::Uri("ipp://192.0.2.2:631".to_string()),
+                            AttributeValue::Uri("ipp://192.0.2.3:631".to_string()),
+                        ]),
+                    ),
+                    (
+                        "collection".to_string(),
+                        AttributeValue::CollectionAttribute(
+                            [
+                                (
+                                    "key1".to_string(),
+                                    AttributeValue::Keyword("value1".to_string()),
+                                ),
+                                (
+                                    "key2".to_string(),
+                                    AttributeValue::CollectionAttribute(
+                                        [(
+                                            "key2-1".to_string(),
+                                            AttributeValue::Keyword("value2-1".to_string()),
+                                        )]
+                                        .into_iter()
+                                        .collect::<HashMap<_, _>>(),
+                                    ),
+                                ),
+                            ]
+                            .into_iter()
+                            .collect::<HashMap<_, _>>(),
+                        ),
+                    ),
+                ],
+            )],
+            data: vec![],
+        };
+
+        assert_eq!(expected_resp, response);
     }
 }
