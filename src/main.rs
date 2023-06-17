@@ -2,6 +2,8 @@ use num::FromPrimitive;
 use reqwest::blocking::Client;
 use std::collections::{HashMap, LinkedList};
 use std::error::Error;
+use std::fmt;
+use std::io;
 use std::io::prelude::*;
 use std::ops::Range;
 
@@ -105,6 +107,37 @@ enum StatusCode {
     ServerErrorMultipleDocumentJobsNotSupported = 0x0509,
 }
 
+#[derive(Debug)]
+enum IPPError {
+    IOError(io::Error),
+    ProtocolError,
+    ValueFormatError,
+}
+
+impl fmt::Display for IPPError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::IOError(err) => err.fmt(f),
+            Self::ProtocolError => {
+                write!(f, "protocol error")
+            }
+            Self::ValueFormatError => {
+                write!(f, "value format error")
+            }
+        }
+    }
+}
+
+impl Error for IPPError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::IOError(err) => Some(err),
+            Self::ProtocolError => None,
+            Self::ValueFormatError => None,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 #[allow(unused)]
 struct StringWithLanguage {
@@ -113,18 +146,18 @@ struct StringWithLanguage {
 }
 
 impl StringWithLanguage {
-    fn parse_buffer(buf: Vec<u8>) -> Result<Self, Box<dyn Error>> {
+    fn parse_buffer(buf: Vec<u8>) -> Result<Self, IPPError> {
         let len = buf.len();
         if len < 2 {
-            panic!();
+            return Err(IPPError::ValueFormatError);
         }
         let lang_len = i16::from_be_bytes([buf[0], buf[1]]) as usize;
         if len < 2 + lang_len + 2 {
-            panic!();
+            return Err(IPPError::ValueFormatError);
         }
         let str_len = i16::from_be_bytes([buf[2 + lang_len], buf[2 + lang_len + 1]]) as usize;
         if len < 2 + lang_len + 2 + str_len {
-            panic!();
+            return Err(IPPError::ValueFormatError);
         }
 
         Ok(Self {
@@ -146,9 +179,9 @@ struct Resolution {
 }
 
 impl Resolution {
-    fn parse_buffer(buf: Vec<u8>) -> Result<Self, Box<dyn Error>> {
+    fn parse_buffer(buf: Vec<u8>) -> Result<Self, IPPError> {
         if buf.len() != 9 {
-            panic!();
+            return Err(IPPError::ValueFormatError);
         }
 
         Ok(Self {
@@ -175,9 +208,9 @@ struct DateTime {
 }
 
 impl DateTime {
-    fn parse_buffer(buf: Vec<u8>) -> Result<Self, Box<dyn Error>> {
+    fn parse_buffer(buf: Vec<u8>) -> Result<Self, IPPError> {
         if buf.len() != 11 {
-            panic!();
+            return Err(IPPError::ValueFormatError);
         }
         Ok(Self {
             year: u16::from_be_bytes([buf[0], buf[1]]),
@@ -247,7 +280,7 @@ impl IPPResponse {
     fn decode_attribute_value(
         value_type: DelimiterOrValueTag,
         buf: Vec<u8>,
-    ) -> Result<AttributeValue, Box<dyn Error>> {
+    ) -> Result<AttributeValue, IPPError> {
         match value_type {
             DelimiterOrValueTag::Unsupported => Ok(AttributeValue::Unsupported(buf)),
             DelimiterOrValueTag::Unknown => Ok(AttributeValue::Unknown(buf)),
@@ -255,7 +288,7 @@ impl IPPResponse {
                 if buf.is_empty() {
                     Ok(AttributeValue::NoValue)
                 } else {
-                    panic!();
+                    Err(IPPError::ProtocolError)
                 }
             }
             DelimiterOrValueTag::Integer => {
@@ -264,14 +297,14 @@ impl IPPResponse {
                         buf[0], buf[1], buf[2], buf[3],
                     ])))
                 } else {
-                    panic!();
+                    Err(IPPError::ProtocolError)
                 }
             }
             DelimiterOrValueTag::Boolean => {
                 if buf.len() == 1 {
                     Ok(AttributeValue::Boolean(buf[0] == 1u8))
                 } else {
-                    panic!();
+                    Err(IPPError::ProtocolError)
                 }
             }
             DelimiterOrValueTag::Enum => {
@@ -280,11 +313,14 @@ impl IPPResponse {
                         buf[0], buf[1], buf[2], buf[3],
                     ])))
                 } else {
-                    panic!();
+                    Err(IPPError::ProtocolError)
                 }
             }
             DelimiterOrValueTag::OctetStringUnspecified => Ok(
-                AttributeValue::OctetStringUnspecified(String::from_utf8(buf)?),
+                AttributeValue::OctetStringUnspecified(match String::from_utf8(buf) {
+                    Ok(str) => str,
+                    Err(_) => return Err(IPPError::ValueFormatError),
+                }),
             ),
             DelimiterOrValueTag::DateTime => {
                 Ok(AttributeValue::DateTime(DateTime::parse_buffer(buf)?))
@@ -294,7 +330,7 @@ impl IPPResponse {
             }
             DelimiterOrValueTag::RangeOfInteger => {
                 if buf.len() != 8 {
-                    panic!();
+                    return Err(IPPError::ValueFormatError);
                 }
                 let start = i32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
                 let end = i32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
@@ -303,7 +339,7 @@ impl IPPResponse {
             }
             DelimiterOrValueTag::BegCollection => {
                 if !buf.is_empty() {
-                    panic!();
+                    return Err(IPPError::ProtocolError);
                 }
                 Ok(AttributeValue::BegCollection)
             }
@@ -315,74 +351,118 @@ impl IPPResponse {
             )),
             DelimiterOrValueTag::EndCollection => {
                 if !buf.is_empty() {
-                    panic!();
+                    return Err(IPPError::ProtocolError);
                 }
                 Ok(AttributeValue::EndCollection)
             }
-            DelimiterOrValueTag::TextWithoutLanguage => {
-                Ok(AttributeValue::TextWithoutLanguage(String::from_utf8(buf)?))
+            DelimiterOrValueTag::TextWithoutLanguage => Ok(AttributeValue::TextWithoutLanguage(
+                match String::from_utf8(buf) {
+                    Ok(result) => result,
+                    Err(_) => return Err(IPPError::ValueFormatError),
+                },
+            )),
+            DelimiterOrValueTag::NameWithoutLanguage => Ok(AttributeValue::NameWithoutLanguage(
+                match String::from_utf8(buf) {
+                    Ok(result) => result,
+                    Err(_) => return Err(IPPError::ValueFormatError),
+                },
+            )),
+            DelimiterOrValueTag::Keyword => {
+                Ok(AttributeValue::Keyword(match String::from_utf8(buf) {
+                    Ok(result) => result,
+                    Err(_) => return Err(IPPError::ValueFormatError),
+                }))
             }
-            DelimiterOrValueTag::NameWithoutLanguage => {
-                Ok(AttributeValue::NameWithoutLanguage(String::from_utf8(buf)?))
-            }
-            DelimiterOrValueTag::Keyword => Ok(AttributeValue::Keyword(String::from_utf8(buf)?)),
-            DelimiterOrValueTag::Uri => Ok(AttributeValue::Uri(String::from_utf8(buf)?)),
+            DelimiterOrValueTag::Uri => Ok(AttributeValue::Uri(match String::from_utf8(buf) {
+                Ok(result) => result,
+                Err(_) => return Err(IPPError::ValueFormatError),
+            })),
             DelimiterOrValueTag::UriScheme => {
-                Ok(AttributeValue::UriScheme(String::from_utf8(buf)?))
+                Ok(AttributeValue::UriScheme(match String::from_utf8(buf) {
+                    Ok(result) => result,
+                    Err(_) => return Err(IPPError::ValueFormatError),
+                }))
             }
-            DelimiterOrValueTag::Charset => Ok(AttributeValue::Charset(String::from_utf8(buf)?)),
-            DelimiterOrValueTag::NaturalLanguage => {
-                Ok(AttributeValue::NaturalLanguage(String::from_utf8(buf)?))
+            DelimiterOrValueTag::Charset => {
+                Ok(AttributeValue::Charset(match String::from_utf8(buf) {
+                    Ok(result) => result,
+                    Err(_) => return Err(IPPError::ValueFormatError),
+                }))
             }
-            DelimiterOrValueTag::MimeMediaType => {
-                Ok(AttributeValue::MimeMediaType(String::from_utf8(buf)?))
-            }
-            DelimiterOrValueTag::MemberAttrName => {
-                Ok(AttributeValue::MemberAttrName(String::from_utf8(buf)?))
-            }
+            DelimiterOrValueTag::NaturalLanguage => Ok(AttributeValue::NaturalLanguage(
+                match String::from_utf8(buf) {
+                    Ok(result) => result,
+                    Err(_) => return Err(IPPError::ValueFormatError),
+                },
+            )),
+            DelimiterOrValueTag::MimeMediaType => Ok(AttributeValue::MimeMediaType(
+                match String::from_utf8(buf) {
+                    Ok(result) => result,
+                    Err(_) => return Err(IPPError::ValueFormatError),
+                },
+            )),
+            DelimiterOrValueTag::MemberAttrName => Ok(AttributeValue::MemberAttrName(
+                match String::from_utf8(buf) {
+                    Ok(result) => result,
+                    Err(_) => return Err(IPPError::ValueFormatError),
+                },
+            )),
 
-            _ => panic!(),
+            _ => return Err(IPPError::ProtocolError),
         }
     }
 
     fn parse_attribute<R>(
         reader: &mut R,
         value_type: DelimiterOrValueTag,
-    ) -> Result<(String, AttributeValue), Box<dyn Error>>
+    ) -> Result<(String, AttributeValue), IPPError>
     where
         R: Read,
     {
         let mut buf = [0u8; 2];
-        reader.read_exact(&mut buf)?;
+        if let Err(err) = reader.read_exact(&mut buf) {
+            return Err(IPPError::IOError(err));
+        };
         let name_len = i16::from_be_bytes(buf);
         let mut name_buf = vec![0u8; name_len as usize];
-        reader.read_exact(name_buf.as_mut_slice())?;
-        let name = String::from_utf8(name_buf)?;
+        if let Err(err) = reader.read_exact(name_buf.as_mut_slice()) {
+            return Err(IPPError::IOError(err));
+        };
+        let name = match String::from_utf8(name_buf) {
+            Ok(name) => name,
+            Err(_) => return Err(IPPError::ValueFormatError),
+        };
 
-        reader.read_exact(&mut buf)?;
+        if let Err(err) = reader.read_exact(&mut buf) {
+            return Err(IPPError::IOError(err));
+        };
         let value_len = i16::from_be_bytes(buf);
         let mut value_buf = vec![0u8; value_len as usize];
-        reader.read_exact(value_buf.as_mut_slice())?;
+        if let Err(err) = reader.read_exact(value_buf.as_mut_slice()) {
+            return Err(IPPError::IOError(err));
+        };
 
         let value = IPPResponse::decode_attribute_value(value_type, value_buf)?;
 
         Ok((name, value))
     }
 
-    fn parse_tag<R>(reader: &mut R) -> Result<DelimiterOrValueTag, Box<dyn Error>>
+    fn parse_tag<R>(reader: &mut R) -> Result<DelimiterOrValueTag, IPPError>
     where
         R: Read,
     {
         let mut buf = [0u8; 1];
-        reader.read_exact(&mut buf)?;
+        if let Err(err) = reader.read_exact(&mut buf) {
+            return Err(IPPError::IOError(err));
+        };
 
         match FromPrimitive::from_u8(buf[0]) {
             Some(value) => Ok(value),
-            None => panic!("invalid tag: {}", buf[0]),
+            None => Err(IPPError::ProtocolError),
         }
     }
 
-    fn parse_collection<R>(reader: &mut R) -> Result<AttributeValue, Box<dyn Error>>
+    fn parse_collection<R>(reader: &mut R) -> Result<AttributeValue, IPPError>
     where
         R: Read,
     {
@@ -399,10 +479,10 @@ impl IPPResponse {
                     {
                         name
                     } else {
-                        panic!();
+                        return Err(IPPError::ProtocolError);
                     }
                 }
-                _ => panic!(),
+                _ => return Err(IPPError::ProtocolError),
             };
 
             let value = match IPPResponse::parse_tag(reader)? {
@@ -410,7 +490,7 @@ impl IPPResponse {
                 | DelimiterOrValueTag::JobAttributesTag
                 | DelimiterOrValueTag::PrinterAttributesTag
                 | DelimiterOrValueTag::UnsupportedAttributesTag => {
-                    panic!();
+                    return Err(IPPError::ProtocolError)
                 }
                 DelimiterOrValueTag::BegCollection => {
                     IPPResponse::parse_attribute(reader, DelimiterOrValueTag::BegCollection)?;
@@ -430,7 +510,7 @@ impl IPPResponse {
 
     fn parse_attribute_group<R>(
         reader: &mut R,
-    ) -> Result<Vec<(DelimiterOrValueTag, Vec<(String, AttributeValue)>)>, Box<dyn Error>>
+    ) -> Result<Vec<(DelimiterOrValueTag, Vec<(String, AttributeValue)>)>, IPPError>
     where
         R: Read,
     {
@@ -510,25 +590,29 @@ impl IPPResponse {
         Ok(attr_groups)
     }
 
-    pub fn read_from_stream<R>(reader: &mut R) -> Result<IPPResponse, Box<dyn Error>>
+    pub fn read_from_stream<R>(reader: &mut R) -> Result<IPPResponse, IPPError>
     where
         R: Read,
     {
         let mut buf = [0u8; 8];
-        reader.read_exact(&mut buf)?;
+        if let Err(err) = reader.read_exact(&mut buf) {
+            return Err(IPPError::IOError(err));
+        };
         let version_major = buf[0] as i8;
         let version_minor = buf[1] as i8;
         let status_code: StatusCode =
             match FromPrimitive::from_i16(i16::from_be_bytes([buf[2], buf[3]])) {
                 Some(status_code) => status_code,
-                None => panic!(),
+                None => return Err(IPPError::ProtocolError),
             };
         let request_id = i32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
 
         let attrs = IPPResponse::parse_attribute_group(reader)?;
 
         let mut data = Vec::<u8>::new();
-        reader.read_to_end(&mut data)?;
+        if let Err(err) = reader.read_to_end(&mut data) {
+            return Err(IPPError::IOError(err));
+        };
 
         Ok(IPPResponse {
             version_major,
