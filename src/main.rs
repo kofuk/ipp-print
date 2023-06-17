@@ -222,6 +222,16 @@ enum AttributeValue {
     VectorAttribute(Vec<AttributeValue>),
 }
 
+#[derive(Debug)]
+struct IPPResponse {
+    version_major: i8,
+    version_minor: i8,
+    status_code: StatusCode,
+    request_id: i32,
+    attrs: Vec<(DelimiterOrValueTag, Vec<(String, AttributeValue)>)>,
+    data: Vec<u8>,
+}
+
 macro_rules! write_int_be {
     ($writer:ident,$var:path as $ty:ident) => {{
         let data = $ty::to_be_bytes($var as $ty);
@@ -513,6 +523,36 @@ where
     Ok(attr_groups)
 }
 
+fn parse_response<R>(reader: &mut R) -> Result<IPPResponse, Box<dyn Error>>
+where
+    R: Read,
+{
+    let mut buf = [0u8; 8];
+    reader.read_exact(&mut buf)?;
+    let version_major = buf[0] as i8;
+    let version_minor = buf[1] as i8;
+    let status_code: StatusCode =
+        match FromPrimitive::from_i16(i16::from_be_bytes([buf[2], buf[3]])) {
+            Some(status_code) => status_code,
+            None => panic!(),
+        };
+    let request_id = i32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
+
+    let attrs = parse_attribute_group(reader)?;
+
+    let mut data = Vec::<u8>::new();
+    reader.read_to_end(&mut data)?;
+
+    Ok(IPPResponse {
+        version_major,
+        version_minor,
+        status_code,
+        request_id,
+        attrs,
+        data,
+    })
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let printer_addr = std::env::var("PRINTER_ADDR")
         .expect("PRINTER_ADDR is not set (should be a value like \"192.0.2.1:631\")");
@@ -546,9 +586,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .body(buf)
         .send()?;
 
-    let mut buf = [0u8; 8];
-    resp.read_exact(&mut buf).unwrap();
-    println!("{:?}", parse_attribute_group(&mut resp)?);
+    println!("{:?}", parse_response(&mut resp)?);
 
     Ok(())
 }
@@ -560,6 +598,14 @@ mod tests {
     #[test]
     fn parse_collection() {
         let mut buf = Vec::<u8>::new();
+
+        // version-number
+        buf.write(&[1u8, 1u8]).unwrap();
+        // status-code
+        write_int_be!(buf, StatusCode::SuccessfulOk as i16).unwrap();
+        // request-id
+        let req_id = 1;
+        write_int_be!(buf, req_id as i32).unwrap();
 
         // begin-attribute-group-tag
         write_int_be!(buf, DelimiterOrValueTag::OperationAttributesTag as i8).unwrap();
@@ -587,8 +633,8 @@ mod tests {
         write_int_be!(buf, DelimiterOrValueTag::EndOfAttributesTag as i8).unwrap();
 
         let mut reader = &buf[..];
-        let attr_groups = parse_attribute_group(&mut reader).unwrap();
+        let response = parse_response(&mut reader).unwrap();
 
-        assert_eq!(attr_groups.len(), 1);
+        assert_eq!(response.attrs.len(), 1);
     }
 }
