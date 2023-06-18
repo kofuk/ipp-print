@@ -584,6 +584,11 @@ impl IPPRequest {
             }
         }
 
+        written += match writer.write(&[DelimiterOrValueTag::EndOfAttributesTag as u8]) {
+            Ok(written) => written,
+            Err(err) => return Err(IPPError::IOError(err)),
+        };
+
         Ok(written)
     }
 
@@ -975,62 +980,39 @@ impl IPPResponse {
     }
 }
 
-macro_rules! write_int_be {
-    ($writer:ident,$var:path as $ty:ident) => {{
-        let data = $ty::to_be_bytes($var as $ty);
-        $writer.write(&data)
-    }};
-}
-
-macro_rules! write_attr {
-    ($writer:ident,$type:ident,$name:expr,$value:expr) => {
-        if let Err(err) = $writer.write(&[DelimiterOrValueTag::$type as u8]) {
-            Err(err)
-        } else {
-            if let Err(err) = $writer.write(&i16::to_be_bytes($name.len() as i16)) {
-                Err(err)
-            } else {
-                if let Err(err) = $writer.write($name.as_bytes()) {
-                    Err(err)
-                } else {
-                    if let Err(err) = $writer.write(&i16::to_be_bytes($value.len() as i16)) {
-                        Err(err)
-                    } else {
-                        $writer.write($value.as_bytes())
-                    }
-                }
-            }
-        }
-    };
-}
-
 fn main() -> Result<(), Box<dyn Error>> {
     let printer_addr = std::env::var("PRINTER_ADDR")
         .expect("PRINTER_ADDR is not set (should be a value like \"192.0.2.1:631\")");
 
+    let mut buf = Vec::new();
+
+    IPPRequest {
+        version_major: 1,
+        version_minor: 1,
+        operation_id: PrinterOperation::GetPrinterAttributes,
+        request_id: 1,
+        attrs: vec![(
+            DelimiterOrValueTag::OperationAttributesTag,
+            vec![
+                (
+                    "attributes-charset".to_string(),
+                    AttributeValue::Charset("utf-8".to_string()),
+                ),
+                (
+                    "attributes-natural-language".to_string(),
+                    AttributeValue::NaturalLanguage("ja-jp".to_string()),
+                ),
+                (
+                    "printer-uri".to_string(),
+                    AttributeValue::Uri(format!("ipp://{}", printer_addr)),
+                ),
+            ],
+        )],
+        data: vec![],
+    }
+    .write_to_stream(&mut buf)?;
+
     let client = Client::new();
-
-    let mut buf = Vec::<u8>::new();
-
-    let current_req_id = 1;
-
-    // version-number
-    buf.write(&[1u8, 1u8])?;
-    // operation-id
-    write_int_be!(buf, PrinterOperation::GetPrinterAttributes as i16)?;
-    // request-id
-    write_int_be!(buf, current_req_id as i32)?;
-
-    // begin-attribute-group-tag
-    write_int_be!(buf, DelimiterOrValueTag::OperationAttributesTag as i8)?;
-
-    write_attr!(buf, Charset, "attributes-charset", "utf-8")?;
-    write_attr!(buf, NaturalLanguage, "attributes-natural-language", "ja-jp")?;
-    write_attr!(buf, Uri, "printer-uri", format!("ipp://{}", printer_addr))?;
-
-    // end-of-attributes
-    write_int_be!(buf, DelimiterOrValueTag::EndOfAttributesTag as i8)?;
-
     let mut resp = client
         .post(format!("http://{}", printer_addr))
         .header("Content-Type", "application/ipp")
@@ -1045,6 +1027,35 @@ fn main() -> Result<(), Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    macro_rules! write_int_be {
+        ($writer:ident,$var:path as $ty:ident) => {{
+            let data = $ty::to_be_bytes($var as $ty);
+            $writer.write(&data)
+        }};
+    }
+
+    macro_rules! write_attr {
+        ($writer:ident,$type:ident,$name:expr,$value:expr) => {
+            if let Err(err) = $writer.write(&[DelimiterOrValueTag::$type as u8]) {
+                Err(err)
+            } else {
+                if let Err(err) = $writer.write(&i16::to_be_bytes($name.len() as i16)) {
+                    Err(err)
+                } else {
+                    if let Err(err) = $writer.write($name.as_bytes()) {
+                        Err(err)
+                    } else {
+                        if let Err(err) = $writer.write(&i16::to_be_bytes($value.len() as i16)) {
+                            Err(err)
+                        } else {
+                            $writer.write($value.as_bytes())
+                        }
+                    }
+                }
+            }
+        };
+    }
 
     #[test]
     fn parse_collection() {
