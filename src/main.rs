@@ -984,8 +984,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let printer_addr = std::env::var("PRINTER_ADDR")
         .expect("PRINTER_ADDR is not set (should be a value like \"192.0.2.1:631\")");
 
+    let client = Client::new();
     let mut buf = Vec::new();
 
+    // Get-Printer-Attributes
     IPPRequest {
         version_major: 1,
         version_minor: 1,
@@ -1012,14 +1014,66 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     .write_to_stream(&mut buf)?;
 
-    let client = Client::new();
-    let mut resp = client
-        .post(format!("http://{}", printer_addr))
-        .header("Content-Type", "application/ipp")
-        .body(buf)
-        .send()?;
+    println!(
+        "{:?}",
+        IPPResponse::read_from_stream(
+            &mut client
+                .post(format!("http://{}", printer_addr))
+                .header("Content-Type", "application/ipp")
+                .body(buf)
+                .send()?
+        )?
+    );
 
-    println!("{:?}", IPPResponse::read_from_stream(&mut resp)?);
+    buf = Vec::new();
+
+    // Validate-Job (like 4.2.1.1. Print-Job Request)
+    IPPRequest {
+        version_major: 1,
+        version_minor: 1,
+        operation_id: PrinterOperation::ValidateJob,
+        request_id: 2,
+        attrs: vec![
+            (
+                DelimiterOrValueTag::OperationAttributesTag,
+                vec![
+                    (
+                        "attributes-charset".to_string(),
+                        AttributeValue::Charset("utf-8".to_string()),
+                    ),
+                    (
+                        "attributes-natural-language".to_string(),
+                        AttributeValue::NaturalLanguage("ja-jp".to_string()),
+                    ),
+                    (
+                        "printer-uri".to_string(),
+                        AttributeValue::Uri(format!("ipp://{}", printer_addr)),
+                    ),
+                    (
+                        "requesting-user-name".to_string(),
+                        AttributeValue::NameWithoutLanguage(std::env::var("USER")?),
+                    ),
+                    (
+                        "document-format".to_string(),
+                        AttributeValue::MimeMediaType("application/pdf".to_string())
+                    ),
+                ],
+            ),
+        ],
+        data: vec![],
+    }
+    .write_to_stream(&mut buf)?;
+
+    println!(
+        "{:?}",
+        IPPResponse::read_from_stream(
+            &mut client
+                .post(format!("http://{}", printer_addr))
+                .header("Content-Type", "application/ipp")
+                .body(buf)
+                .send()?
+        )?
+    );
 
     Ok(())
 }
