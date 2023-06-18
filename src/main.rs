@@ -1033,33 +1033,31 @@ fn main() -> Result<(), Box<dyn Error>> {
         version_minor: 1,
         operation_id: PrinterOperation::ValidateJob,
         request_id: 2,
-        attrs: vec![
-            (
-                DelimiterOrValueTag::OperationAttributesTag,
-                vec![
-                    (
-                        "attributes-charset".to_string(),
-                        AttributeValue::Charset("utf-8".to_string()),
-                    ),
-                    (
-                        "attributes-natural-language".to_string(),
-                        AttributeValue::NaturalLanguage("ja-jp".to_string()),
-                    ),
-                    (
-                        "printer-uri".to_string(),
-                        AttributeValue::Uri(format!("ipp://{}", printer_addr)),
-                    ),
-                    (
-                        "requesting-user-name".to_string(),
-                        AttributeValue::NameWithoutLanguage(std::env::var("USER")?),
-                    ),
-                    (
-                        "document-format".to_string(),
-                        AttributeValue::MimeMediaType("application/pdf".to_string())
-                    ),
-                ],
-            ),
-        ],
+        attrs: vec![(
+            DelimiterOrValueTag::OperationAttributesTag,
+            vec![
+                (
+                    "attributes-charset".to_string(),
+                    AttributeValue::Charset("utf-8".to_string()),
+                ),
+                (
+                    "attributes-natural-language".to_string(),
+                    AttributeValue::NaturalLanguage("ja-jp".to_string()),
+                ),
+                (
+                    "printer-uri".to_string(),
+                    AttributeValue::Uri(format!("ipp://{}", printer_addr)),
+                ),
+                (
+                    "requesting-user-name".to_string(),
+                    AttributeValue::NameWithoutLanguage(std::env::var("USER")?),
+                ),
+                (
+                    "document-format".to_string(),
+                    AttributeValue::MimeMediaType("application/pdf".to_string()),
+                ),
+            ],
+        )],
         data: vec![],
     }
     .write_to_stream(&mut buf)?;
@@ -1072,6 +1070,107 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .header("Content-Type", "application/ipp")
                 .body(buf)
                 .send()?
+        )?
+    );
+
+    buf = Vec::new();
+
+    // Create-Job
+    IPPRequest {
+        version_major: 1,
+        version_minor: 1,
+        operation_id: PrinterOperation::CreateJob,
+        request_id: 2,
+        attrs: vec![(
+            DelimiterOrValueTag::OperationAttributesTag,
+            vec![
+                (
+                    "attributes-charset".to_string(),
+                    AttributeValue::Charset("utf-8".to_string()),
+                ),
+                (
+                    "attributes-natural-language".to_string(),
+                    AttributeValue::NaturalLanguage("ja-jp".to_string()),
+                ),
+                (
+                    "printer-uri".to_string(),
+                    AttributeValue::Uri(format!("ipp://{}", printer_addr)),
+                ),
+                (
+                    "requesting-user-name".to_string(),
+                    AttributeValue::NameWithoutLanguage(std::env::var("USER")?),
+                ),
+            ],
+        )],
+        data: vec![],
+    }
+    .write_to_stream(&mut buf)?;
+
+    let create_job_resp = IPPResponse::read_from_stream(
+        &mut client
+            .post(format!("http://{}", printer_addr))
+            .header("Content-Type", "application/ipp")
+            .body(buf)
+            .send()?,
+    )?;
+    println!("{:?}", create_job_resp);
+
+    if create_job_resp.attrs.len() < 2 {
+        panic!("Create-Job response doesn't contain required attribute group");
+    }
+    let job_id = *match create_job_resp.attrs[1]
+        .1
+        .iter()
+        .find(|(key, _)| key == "job-id")
+    {
+        Some((_, AttributeValue::Integer(val))) => val,
+        _ => panic!("job-id was not found"),
+    };
+    println!("job-id={}", job_id);
+
+    buf = Vec::new();
+
+    // Send-Document
+    IPPRequest {
+        version_major: 1,
+        version_minor: 1,
+        operation_id: PrinterOperation::SendDocument,
+        request_id: 2,
+        attrs: vec![(
+            DelimiterOrValueTag::OperationAttributesTag,
+            vec![
+                (
+                    "attributes-charset".to_string(),
+                    AttributeValue::Charset("utf-8".to_string()),
+                ),
+                (
+                    "attributes-natural-language".to_string(),
+                    AttributeValue::NaturalLanguage("ja-jp".to_string()),
+                ),
+                (
+                    "printer-uri".to_string(),
+                    AttributeValue::Uri(format!("ipp://{}", printer_addr)),
+                ),
+                ("job-id".to_string(), AttributeValue::Integer(job_id)),
+                (
+                    "requesting-user-name".to_string(),
+                    AttributeValue::NameWithoutLanguage(std::env::var("USER")?),
+                ),
+                ("last-document".to_string(), AttributeValue::Boolean(true)),
+            ],
+        )],
+        data: vec![],
+    }
+    .write_to_stream(&mut buf)?;
+
+    println!(
+        "{:?}",
+        IPPResponse::read_from_stream(
+            &mut client
+                .post(format!("http://{}", printer_addr))
+                .header("Content-Type", "application/ipp")
+                .body(buf)
+                .send()?,
         )?
     );
 
