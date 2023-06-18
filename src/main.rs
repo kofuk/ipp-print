@@ -8,7 +8,7 @@ extern crate num_derive;
 mod ipp;
 use crate::ipp::*;
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn print_sample_page() -> Result<(), Box<dyn Error>> {
     let printer_addr = std::env::var("PRINTER_ADDR")
         .expect("PRINTER_ADDR is not set (should be a value like \"192.0.2.1:631\")");
 
@@ -256,4 +256,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
 
     Ok(())
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    print_sample_page()
 }

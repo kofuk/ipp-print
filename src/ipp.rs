@@ -204,7 +204,7 @@ impl StringWithLanguage {
 pub struct Resolution {
     pub resolution_cross_feed: i32,
     pub resolution_feed: i32,
-    pub units: i8,
+    pub units: i8,  // 3: dots per inch, 4: dots per centimeter
 }
 
 impl Resolution {
