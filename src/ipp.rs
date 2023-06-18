@@ -107,7 +107,7 @@ pub enum StatusCode {
 pub enum IPPError {
     IOError(io::Error),
     ProtocolError,
-    ValueFormatError,
+    InvalidValue,
 }
 
 impl fmt::Display for IPPError {
@@ -117,7 +117,7 @@ impl fmt::Display for IPPError {
             Self::ProtocolError => {
                 write!(f, "protocol error")
             }
-            Self::ValueFormatError => {
+            Self::InvalidValue => {
                 write!(f, "value format error")
             }
         }
@@ -129,7 +129,7 @@ impl Error for IPPError {
         match self {
             Self::IOError(err) => Some(err),
             Self::ProtocolError => None,
-            Self::ValueFormatError => None,
+            Self::InvalidValue => None,
         }
     }
 }
@@ -145,15 +145,15 @@ impl StringWithLanguage {
     fn parse_buffer(buf: Vec<u8>) -> Result<Self, IPPError> {
         let len = buf.len();
         if len < 2 {
-            return Err(IPPError::ValueFormatError);
+            return Err(IPPError::InvalidValue);
         }
         let lang_len = i16::from_be_bytes([buf[0], buf[1]]) as usize;
         if len < 2 + lang_len + 2 {
-            return Err(IPPError::ValueFormatError);
+            return Err(IPPError::InvalidValue);
         }
         let str_len = i16::from_be_bytes([buf[2 + lang_len], buf[2 + lang_len + 1]]) as usize;
         if len < 2 + lang_len + 2 + str_len {
-            return Err(IPPError::ValueFormatError);
+            return Err(IPPError::InvalidValue);
         }
 
         Ok(Self {
@@ -180,7 +180,7 @@ impl StringWithLanguage {
             Ok(written) => written,
             Err(err) => return Err(IPPError::IOError(err)),
         };
-        written += match writer.write(&lang_bytes) {
+        written += match writer.write(lang_bytes) {
             Ok(written) => written,
             Err(err) => return Err(IPPError::IOError(err)),
         };
@@ -190,7 +190,7 @@ impl StringWithLanguage {
             Ok(written) => written,
             Err(err) => return Err(IPPError::IOError(err)),
         };
-        written += match writer.write(&str_bytes) {
+        written += match writer.write(str_bytes) {
             Ok(written) => written,
             Err(err) => return Err(IPPError::IOError(err)),
         };
@@ -210,7 +210,7 @@ pub struct Resolution {
 impl Resolution {
     fn parse_buffer(buf: Vec<u8>) -> Result<Self, IPPError> {
         if buf.len() != 9 {
-            return Err(IPPError::ValueFormatError);
+            return Err(IPPError::InvalidValue);
         }
 
         Ok(Self {
@@ -260,7 +260,7 @@ pub struct DateTime {
 impl DateTime {
     fn parse_buffer(buf: Vec<u8>) -> Result<Self, IPPError> {
         if buf.len() != 11 {
-            return Err(IPPError::ValueFormatError);
+            return Err(IPPError::InvalidValue);
         }
         Ok(Self {
             year: u16::from_be_bytes([buf[0], buf[1]]),
@@ -333,6 +333,8 @@ pub enum AttributeValue {
     CollectionAttribute(HashMap<String, AttributeValue>),
     VectorAttribute(Vec<AttributeValue>),
 }
+
+pub type AttributeGroup = (DelimiterOrValueTag, Vec<(String, AttributeValue)>);
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct IPPRequest {
@@ -542,7 +544,7 @@ impl IPPRequest {
                     written += IPPRequest::write_u16(writer, 0)?;
 
                     written += IPPRequest::write_str_and_len(writer, k)?;
-                    written += IPPRequest::write_attr(writer, "", &v)?;
+                    written += IPPRequest::write_attr(writer, "", v)?;
                 }
 
                 written += IPPRequest::write_tag(writer, DelimiterOrValueTag::EndCollection)?;
@@ -601,7 +603,7 @@ impl IPPRequest {
             Ok(written) => written,
             Err(err) => return Err(IPPError::IOError(err)),
         };
-        written += match writer.write(&i32::to_be_bytes(self.request_id as i32)) {
+        written += match writer.write(&i32::to_be_bytes(self.request_id)) {
             Ok(written) => written,
             Err(err) => return Err(IPPError::IOError(err)),
         };
@@ -670,7 +672,7 @@ impl IPPResponse {
             DelimiterOrValueTag::OctetStringUnspecified => Ok(
                 AttributeValue::OctetStringUnspecified(match String::from_utf8(buf) {
                     Ok(str) => str,
-                    Err(_) => return Err(IPPError::ValueFormatError),
+                    Err(_) => return Err(IPPError::InvalidValue),
                 }),
             ),
             DelimiterOrValueTag::DateTime => {
@@ -681,7 +683,7 @@ impl IPPResponse {
             }
             DelimiterOrValueTag::RangeOfInteger => {
                 if buf.len() != 8 {
-                    return Err(IPPError::ValueFormatError);
+                    return Err(IPPError::InvalidValue);
                 }
                 let start = i32::from_be_bytes([buf[0], buf[1], buf[2], buf[3]]);
                 let end = i32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]);
@@ -709,57 +711,57 @@ impl IPPResponse {
             DelimiterOrValueTag::TextWithoutLanguage => Ok(AttributeValue::TextWithoutLanguage(
                 match String::from_utf8(buf) {
                     Ok(result) => result,
-                    Err(_) => return Err(IPPError::ValueFormatError),
+                    Err(_) => return Err(IPPError::InvalidValue),
                 },
             )),
             DelimiterOrValueTag::NameWithoutLanguage => Ok(AttributeValue::NameWithoutLanguage(
                 match String::from_utf8(buf) {
                     Ok(result) => result,
-                    Err(_) => return Err(IPPError::ValueFormatError),
+                    Err(_) => return Err(IPPError::InvalidValue),
                 },
             )),
             DelimiterOrValueTag::Keyword => {
                 Ok(AttributeValue::Keyword(match String::from_utf8(buf) {
                     Ok(result) => result,
-                    Err(_) => return Err(IPPError::ValueFormatError),
+                    Err(_) => return Err(IPPError::InvalidValue),
                 }))
             }
             DelimiterOrValueTag::Uri => Ok(AttributeValue::Uri(match String::from_utf8(buf) {
                 Ok(result) => result,
-                Err(_) => return Err(IPPError::ValueFormatError),
+                Err(_) => return Err(IPPError::InvalidValue),
             })),
             DelimiterOrValueTag::UriScheme => {
                 Ok(AttributeValue::UriScheme(match String::from_utf8(buf) {
                     Ok(result) => result,
-                    Err(_) => return Err(IPPError::ValueFormatError),
+                    Err(_) => return Err(IPPError::InvalidValue),
                 }))
             }
             DelimiterOrValueTag::Charset => {
                 Ok(AttributeValue::Charset(match String::from_utf8(buf) {
                     Ok(result) => result,
-                    Err(_) => return Err(IPPError::ValueFormatError),
+                    Err(_) => return Err(IPPError::InvalidValue),
                 }))
             }
             DelimiterOrValueTag::NaturalLanguage => Ok(AttributeValue::NaturalLanguage(
                 match String::from_utf8(buf) {
                     Ok(result) => result,
-                    Err(_) => return Err(IPPError::ValueFormatError),
+                    Err(_) => return Err(IPPError::InvalidValue),
                 },
             )),
             DelimiterOrValueTag::MimeMediaType => Ok(AttributeValue::MimeMediaType(
                 match String::from_utf8(buf) {
                     Ok(result) => result,
-                    Err(_) => return Err(IPPError::ValueFormatError),
+                    Err(_) => return Err(IPPError::InvalidValue),
                 },
             )),
             DelimiterOrValueTag::MemberAttrName => Ok(AttributeValue::MemberAttrName(
                 match String::from_utf8(buf) {
                     Ok(result) => result,
-                    Err(_) => return Err(IPPError::ValueFormatError),
+                    Err(_) => return Err(IPPError::InvalidValue),
                 },
             )),
 
-            _ => return Err(IPPError::ProtocolError),
+            _ => Err(IPPError::ProtocolError),
         }
     }
 
@@ -781,7 +783,7 @@ impl IPPResponse {
         };
         let name = match String::from_utf8(name_buf) {
             Ok(name) => name,
-            Err(_) => return Err(IPPError::ValueFormatError),
+            Err(_) => return Err(IPPError::InvalidValue),
         };
 
         if let Err(err) = reader.read_exact(&mut buf) {
@@ -859,9 +861,7 @@ impl IPPResponse {
         Ok(AttributeValue::CollectionAttribute(map))
     }
 
-    fn parse_attribute_group<R>(
-        reader: &mut R,
-    ) -> Result<Vec<(DelimiterOrValueTag, Vec<(String, AttributeValue)>)>, IPPError>
+    fn parse_attribute_group<R>(reader: &mut R) -> Result<Vec<AttributeGroup>, IPPError>
     where
         R: Read,
     {
@@ -906,10 +906,9 @@ impl IPPResponse {
                 let attr = attrs.pop_front().unwrap();
 
                 loop {
-                    let next = attrs.iter_mut().nth(0);
-                    if next.is_some() {
-                        let next = next.unwrap();
-                        if next.0.len() == 0 {
+                    let next = attrs.iter_mut().next();
+                    if let Some(next) = next {
+                        if next.0.is_empty() {
                             if attr_vec.is_empty() {
                                 attr_vec.push(attr.1.clone());
                             }
