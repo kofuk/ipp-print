@@ -382,7 +382,192 @@ impl IPPRequest {
         Ok(written)
     }
 
-    fn write_attribute_group<W>(&self, writer: &mut W) -> Result<usize, IPPError>
+    fn write_attr<W>(writer: &mut W, name: &str, value: &AttributeValue) -> Result<usize, IPPError>
+    where
+        W: Write,
+    {
+        let mut written = 0;
+        match value {
+            AttributeValue::Unsupported(val) => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::Unsupported)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_u16(writer, val.len() as u16)?;
+                written += match writer.write(val.as_slice()) {
+                    Ok(written) => written,
+                    Err(err) => return Err(IPPError::IOError(err)),
+                };
+            }
+            AttributeValue::Unknown(val) => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::Unknown)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_u16(writer, val.len() as u16)?;
+                written += match writer.write(val.as_slice()) {
+                    Ok(written) => written,
+                    Err(err) => return Err(IPPError::IOError(err)),
+                };
+            }
+            AttributeValue::NoValue => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::NoValue)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_u16(writer, 0u16)?;
+            }
+            AttributeValue::Integer(val) => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::Integer)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_u16(writer, 4u16)?;
+                written += match writer.write(&val.to_be_bytes()) {
+                    Ok(written) => written,
+                    Err(err) => return Err(IPPError::IOError(err)),
+                };
+            }
+            AttributeValue::Boolean(val) => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::Boolean)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_u16(writer, 1u16)?;
+                written += match writer.write(&[if *val { 1u8 } else { 0u8 }]) {
+                    Ok(written) => written,
+                    Err(err) => return Err(IPPError::IOError(err)),
+                };
+            }
+            AttributeValue::Enum(val) => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::Enum)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_u16(writer, 4u16)?;
+                written += match writer.write(&val.to_be_bytes()) {
+                    Ok(written) => written,
+                    Err(err) => return Err(IPPError::IOError(err)),
+                };
+            }
+            AttributeValue::OctetStringUnspecified(val) => {
+                written +=
+                    IPPRequest::write_tag(writer, DelimiterOrValueTag::OctetStringUnspecified)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_str_and_len(writer, val.as_str())?;
+            }
+            AttributeValue::DateTime(val) => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::DateTime)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_u16(writer, val.byte_len())?;
+                written += val.write_to_stream(writer)?;
+            }
+            AttributeValue::Resolution(val) => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::Resolution)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_u16(writer, val.byte_len())?;
+                written += val.write_to_stream(writer)?;
+            }
+            AttributeValue::RangeOfInteger(val) => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::RangeOfInteger)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_u16(writer, 8u16)?;
+                written += match writer.write(&val.start.to_be_bytes()) {
+                    Ok(written) => written,
+                    Err(err) => return Err(IPPError::IOError(err)),
+                };
+                written += match writer.write(&val.end.to_be_bytes()) {
+                    Ok(written) => written,
+                    Err(err) => return Err(IPPError::IOError(err)),
+                };
+            }
+            AttributeValue::BegCollection => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::BegCollection)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_u16(writer, 0u16)?;
+            }
+            AttributeValue::TextWithLanguage(val) => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::TextWithLanguage)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_u16(writer, val.byte_len())?;
+                written += val.write_to_stream(writer)?;
+            }
+            AttributeValue::NameWithLanguage(val) => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::NameWithLanguage)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_u16(writer, val.byte_len())?;
+                written += val.write_to_stream(writer)?;
+            }
+            AttributeValue::EndCollection => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::EndCollection)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_u16(writer, 0u16)?;
+            }
+            AttributeValue::TextWithoutLanguage(val) => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::TextWithoutLanguage)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_str_and_len(writer, val.as_str())?;
+            }
+            AttributeValue::NameWithoutLanguage(val) => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::NameWithoutLanguage)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_str_and_len(writer, val.as_str())?;
+            }
+            AttributeValue::Keyword(val) => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::Keyword)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_str_and_len(writer, val.as_str())?;
+            }
+            AttributeValue::Uri(val) => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::Uri)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_str_and_len(writer, val.as_str())?;
+            }
+            AttributeValue::UriScheme(val) => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::UriScheme)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_str_and_len(writer, val.as_str())?;
+            }
+            AttributeValue::Charset(val) => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::Charset)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_str_and_len(writer, val.as_str())?;
+            }
+            AttributeValue::NaturalLanguage(val) => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::NaturalLanguage)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_str_and_len(writer, val.as_str())?;
+            }
+            AttributeValue::MimeMediaType(val) => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::MimeMediaType)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_str_and_len(writer, val.as_str())?;
+            }
+            AttributeValue::MemberAttrName(val) => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::MemberAttrName)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_str_and_len(writer, val.as_str())?;
+            }
+            AttributeValue::CollectionAttribute(val) => {
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::BegCollection)?;
+                written += IPPRequest::write_str_and_len(writer, name)?;
+                written += IPPRequest::write_u16(writer, 0)?;
+
+                for (k, v) in val {
+                    written += IPPRequest::write_tag(writer, DelimiterOrValueTag::MemberAttrName)?;
+                    written += IPPRequest::write_u16(writer, 0)?;
+
+                    written += IPPRequest::write_str_and_len(writer, k)?;
+                    written += IPPRequest::write_attr(writer, "", &v)?;
+                }
+
+                written += IPPRequest::write_tag(writer, DelimiterOrValueTag::EndCollection)?;
+                written += IPPRequest::write_u16(writer, 0)?;
+                written += IPPRequest::write_u16(writer, 0)?;
+            }
+            AttributeValue::VectorAttribute(vals) => {
+                if !vals.is_empty() {
+                    written += IPPRequest::write_attr(writer, name, &vals[0])?;
+
+                    for val in vals.iter().skip(1) {
+                        written += IPPRequest::write_attr(writer, "", val)?;
+                    }
+                }
+            }
+        };
+
+        Ok(written)
+    }
+
+    fn write_attr_group<W>(&self, writer: &mut W) -> Result<usize, IPPError>
     where
         W: Write,
     {
@@ -395,174 +580,7 @@ impl IPPRequest {
             };
 
             for attr in &group.1 {
-                match &attr.1 {
-                    AttributeValue::Unsupported(val) => {
-                        written += IPPRequest::write_tag(writer, DelimiterOrValueTag::Unsupported)?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_u16(writer, val.len() as u16)?;
-                        written += match writer.write(val.as_slice()) {
-                            Ok(written) => written,
-                            Err(err) => return Err(IPPError::IOError(err)),
-                        };
-                    }
-                    AttributeValue::Unknown(val) => {
-                        written += IPPRequest::write_tag(writer, DelimiterOrValueTag::Unknown)?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_u16(writer, val.len() as u16)?;
-                        written += match writer.write(val.as_slice()) {
-                            Ok(written) => written,
-                            Err(err) => return Err(IPPError::IOError(err)),
-                        };
-                    }
-                    AttributeValue::NoValue => {
-                        written += IPPRequest::write_tag(writer, DelimiterOrValueTag::NoValue)?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_u16(writer, 0u16)?;
-                    }
-                    AttributeValue::Integer(val) => {
-                        written += IPPRequest::write_tag(writer, DelimiterOrValueTag::Integer)?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_u16(writer, 4u16)?;
-                        written += match writer.write(&val.to_be_bytes()) {
-                            Ok(written) => written,
-                            Err(err) => return Err(IPPError::IOError(err)),
-                        };
-                    }
-                    AttributeValue::Boolean(val) => {
-                        written += IPPRequest::write_tag(writer, DelimiterOrValueTag::Boolean)?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_u16(writer, 1u16)?;
-                        written += match writer.write(&[if *val { 1u8 } else { 0u8 }]) {
-                            Ok(written) => written,
-                            Err(err) => return Err(IPPError::IOError(err)),
-                        };
-                    }
-                    AttributeValue::Enum(val) => {
-                        written += IPPRequest::write_tag(writer, DelimiterOrValueTag::Enum)?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_u16(writer, 4u16)?;
-                        written += match writer.write(&val.to_be_bytes()) {
-                            Ok(written) => written,
-                            Err(err) => return Err(IPPError::IOError(err)),
-                        };
-                    }
-                    AttributeValue::OctetStringUnspecified(val) => {
-                        written += IPPRequest::write_tag(
-                            writer,
-                            DelimiterOrValueTag::OctetStringUnspecified,
-                        )?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_str_and_len(writer, val.as_str())?;
-                    }
-                    AttributeValue::DateTime(val) => {
-                        written += IPPRequest::write_tag(writer, DelimiterOrValueTag::DateTime)?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_u16(writer, val.byte_len())?;
-                        written += val.write_to_stream(writer)?;
-                    }
-                    AttributeValue::Resolution(val) => {
-                        written += IPPRequest::write_tag(writer, DelimiterOrValueTag::Resolution)?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_u16(writer, val.byte_len())?;
-                        written += val.write_to_stream(writer)?;
-                    }
-                    AttributeValue::RangeOfInteger(val) => {
-                        written +=
-                            IPPRequest::write_tag(writer, DelimiterOrValueTag::RangeOfInteger)?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_u16(writer, 8u16)?;
-                        written += match writer.write(&val.start.to_be_bytes()) {
-                            Ok(written) => written,
-                            Err(err) => return Err(IPPError::IOError(err)),
-                        };
-                        written += match writer.write(&val.end.to_be_bytes()) {
-                            Ok(written) => written,
-                            Err(err) => return Err(IPPError::IOError(err)),
-                        };
-                    }
-                    AttributeValue::BegCollection => {
-                        written +=
-                            IPPRequest::write_tag(writer, DelimiterOrValueTag::BegCollection)?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_u16(writer, 0u16)?;
-                    }
-                    AttributeValue::TextWithLanguage(val) => {
-                        written +=
-                            IPPRequest::write_tag(writer, DelimiterOrValueTag::TextWithLanguage)?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_u16(writer, val.byte_len())?;
-                        written += val.write_to_stream(writer)?;
-                    }
-                    AttributeValue::NameWithLanguage(val) => {
-                        written +=
-                            IPPRequest::write_tag(writer, DelimiterOrValueTag::NameWithLanguage)?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_u16(writer, val.byte_len())?;
-                        written += val.write_to_stream(writer)?;
-                    }
-                    AttributeValue::EndCollection => {
-                        written +=
-                            IPPRequest::write_tag(writer, DelimiterOrValueTag::EndCollection)?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_u16(writer, 0u16)?;
-                    }
-                    AttributeValue::TextWithoutLanguage(val) => {
-                        written += IPPRequest::write_tag(
-                            writer,
-                            DelimiterOrValueTag::TextWithoutLanguage,
-                        )?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_str_and_len(writer, val.as_str())?;
-                    }
-                    AttributeValue::NameWithoutLanguage(val) => {
-                        written += IPPRequest::write_tag(
-                            writer,
-                            DelimiterOrValueTag::NameWithoutLanguage,
-                        )?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_str_and_len(writer, val.as_str())?;
-                    }
-                    AttributeValue::Keyword(val) => {
-                        written += IPPRequest::write_tag(writer, DelimiterOrValueTag::Keyword)?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_str_and_len(writer, val.as_str())?;
-                    }
-                    AttributeValue::Uri(val) => {
-                        written += IPPRequest::write_tag(writer, DelimiterOrValueTag::Uri)?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_str_and_len(writer, val.as_str())?;
-                    }
-                    AttributeValue::UriScheme(val) => {
-                        written += IPPRequest::write_tag(writer, DelimiterOrValueTag::UriScheme)?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_str_and_len(writer, val.as_str())?;
-                    }
-                    AttributeValue::Charset(val) => {
-                        written += IPPRequest::write_tag(writer, DelimiterOrValueTag::Charset)?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_str_and_len(writer, val.as_str())?;
-                    }
-                    AttributeValue::NaturalLanguage(val) => {
-                        written +=
-                            IPPRequest::write_tag(writer, DelimiterOrValueTag::NaturalLanguage)?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_str_and_len(writer, val.as_str())?;
-                    }
-                    AttributeValue::MimeMediaType(val) => {
-                        written +=
-                            IPPRequest::write_tag(writer, DelimiterOrValueTag::MimeMediaType)?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_str_and_len(writer, val.as_str())?;
-                    }
-                    AttributeValue::MemberAttrName(val) => {
-                        written +=
-                            IPPRequest::write_tag(writer, DelimiterOrValueTag::MemberAttrName)?;
-                        written += IPPRequest::write_str_and_len(writer, attr.0.as_str())?;
-                        written += IPPRequest::write_str_and_len(writer, val.as_str())?;
-                    }
-                    AttributeValue::CollectionAttribute(val) => (),
-                    AttributeValue::VectorAttribute(vals) => (),
-                }
+                written += IPPRequest::write_attr(writer, attr.0.as_str(), &attr.1)?;
             }
         }
 
@@ -587,7 +605,7 @@ impl IPPRequest {
             Err(err) => return Err(IPPError::IOError(err)),
         };
 
-        written += self.write_attribute_group(writer)?;
+        written += self.write_attr_group(writer)?;
 
         written += match writer.write(&self.data) {
             Ok(written) => written,
