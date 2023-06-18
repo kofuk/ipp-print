@@ -1,11 +1,14 @@
 # IPP
 
+## Current Status
+
+- Send IPP request
+- Receive IPP response and parse it to Rust struct
+- Print sample URF raster data
+
 ## TODO
 
-- [ ] Implement interface to access parsed data structure
-    - It might be good if it has a struct which has each attribute group as member
-- [ ] Implement interface to construct data which send to a printer.
-- [ ] Send requests like job creation to a printer
+- [ ] Generate raster data
 
 ## About IPP and Driverless Printing
 
