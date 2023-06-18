@@ -1054,7 +1054,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 ),
                 (
                     "document-format".to_string(),
-                    AttributeValue::MimeMediaType("application/pdf".to_string()),
+                    AttributeValue::MimeMediaType("image/jpeg".to_string()),
                 ),
             ],
         )],
@@ -1126,11 +1126,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         Some((_, AttributeValue::Integer(val))) => val,
         _ => panic!("job-id was not found"),
     };
-    println!("job-id={}", job_id);
 
     buf = Vec::new();
 
     // Send-Document
+    let doc_data = {
+        let mut buf = Vec::new();
+        let mut file = std::fs::File::open("data/sample.urf")?;
+        file.read_to_end(&mut buf)?;
+        buf
+    };
     IPPRequest {
         version_major: 1,
         version_minor: 1,
@@ -1156,7 +1161,55 @@ fn main() -> Result<(), Box<dyn Error>> {
                     "requesting-user-name".to_string(),
                     AttributeValue::NameWithoutLanguage(std::env::var("USER")?),
                 ),
+                (
+                    "document-format".to_string(),
+                    AttributeValue::MimeMediaType("image/urf".to_string()),
+                ),
                 ("last-document".to_string(), AttributeValue::Boolean(true)),
+            ],
+        )],
+        data: doc_data,
+    }
+    .write_to_stream(&mut buf)?;
+
+    println!(
+        "{:?}",
+        IPPResponse::read_from_stream(
+            &mut client
+                .post(format!("http://{}", printer_addr))
+                .header("Content-Type", "application/ipp")
+                .body(buf)
+                .send()?,
+        )?
+    );
+
+    buf = Vec::new();
+
+    // Get-Jobs
+    IPPRequest {
+        version_major: 1,
+        version_minor: 1,
+        operation_id: PrinterOperation::GetJobs,
+        request_id: 2,
+        attrs: vec![(
+            DelimiterOrValueTag::OperationAttributesTag,
+            vec![
+                (
+                    "attributes-charset".to_string(),
+                    AttributeValue::Charset("utf-8".to_string()),
+                ),
+                (
+                    "attributes-natural-language".to_string(),
+                    AttributeValue::NaturalLanguage("ja-jp".to_string()),
+                ),
+                (
+                    "printer-uri".to_string(),
+                    AttributeValue::Uri(format!("ipp://{}", printer_addr)),
+                ),
+                (
+                    "requesting-user-name".to_string(),
+                    AttributeValue::NameWithoutLanguage(std::env::var("USER")?),
+                ),
             ],
         )],
         data: vec![],
