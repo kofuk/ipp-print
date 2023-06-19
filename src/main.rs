@@ -160,7 +160,7 @@ fn print_sample_page() -> Result<(), Box<dyn Error>> {
     // Send-Document
     let doc_data = {
         let mut buf = Vec::new();
-        let mut file = std::fs::File::open("data/sample.urf")?;
+        let mut file = std::fs::File::open("data/single-sided.urf")?;
         file.read_to_end(&mut buf)?;
         buf
     };
