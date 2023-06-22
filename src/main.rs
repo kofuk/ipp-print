@@ -8,6 +8,9 @@ extern crate num_derive;
 mod ipp;
 use crate::ipp::*;
 
+mod pwgraster;
+use crate::pwgraster::*;
+
 fn print_sample_page() -> Result<(), Box<dyn Error>> {
     let printer_addr = std::env::var("PRINTER_ADDR")
         .expect("PRINTER_ADDR is not set (should be a value like \"192.0.2.1:631\")");
@@ -259,5 +262,6 @@ fn print_sample_page() -> Result<(), Box<dyn Error>> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    print_sample_page()
+    let mut file = std::fs::File::open("data/cups-raster")?;
+    read_raster(&mut file)
 }
