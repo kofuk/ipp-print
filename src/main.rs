@@ -11,7 +11,7 @@ use crate::ipp::*;
 mod pwgraster;
 use crate::pwgraster::*;
 
-fn print_sample_page() -> Result<(), Box<dyn Error>> {
+fn print_page(raster_data: Vec<u8>) -> Result<(), Box<dyn Error>> {
     let printer_addr = std::env::var("PRINTER_ADDR")
         .expect("PRINTER_ADDR is not set (should be a value like \"192.0.2.1:631\")");
 
@@ -85,7 +85,7 @@ fn print_sample_page() -> Result<(), Box<dyn Error>> {
                 ),
                 (
                     "document-format".to_string(),
-                    AttributeValue::MimeMediaType("image/jpeg".to_string()),
+                    AttributeValue::MimeMediaType("image/pwg-raster".to_string()),
                 ),
             ],
         )],
@@ -161,12 +161,6 @@ fn print_sample_page() -> Result<(), Box<dyn Error>> {
     buf = Vec::new();
 
     // Send-Document
-    let doc_data = {
-        let mut buf = Vec::new();
-        let mut file = std::fs::File::open("data/single-sided.urf")?;
-        file.read_to_end(&mut buf)?;
-        buf
-    };
     IPPRequest {
         version_major: 1,
         version_minor: 1,
@@ -194,12 +188,12 @@ fn print_sample_page() -> Result<(), Box<dyn Error>> {
                 ),
                 (
                     "document-format".to_string(),
-                    AttributeValue::MimeMediaType("image/urf".to_string()),
+                    AttributeValue::MimeMediaType("image/pwg-raster".to_string()),
                 ),
                 ("last-document".to_string(), AttributeValue::Boolean(true)),
             ],
         )],
-        data: doc_data,
+        data: raster_data,
     }
     .write_to_stream(&mut buf)?;
 
@@ -291,5 +285,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     data.write(b"RaS2")?;
     page.write_to_stream(& mut data)?;
 
-    read_raster(&mut &data[..])
+    read_raster(&mut &data[..])?;
+
+    print_page(data)
 }
