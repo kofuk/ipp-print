@@ -2,7 +2,8 @@ use std::error::Error;
 use std::fs::File;
 use std::io::prelude::*;
 
-struct PWGPageHeader {
+#[derive(Debug)]
+pub struct PageHeader {
     /// NUL-terminated string saying "PwgRaster".
     pwg_raster: [u8; 64],
     /// NUL-terminated string indicating media color name.
@@ -85,7 +86,7 @@ struct PWGPageHeader {
     /// [1]: Height in point
     /// Standardized in PWG5101.1
     page_size: [u32; 2],
-    reserved_5: [u32; 8],
+    reserved_5: [u8; 8],
     /// Rotate the back page when printing on both sides of the page
     /// 0: Do not rotate (two-sided long edge if duplex=true)
     /// 1: Rotate (two-sided short edge if duplex=true)
@@ -99,7 +100,7 @@ struct PWGPageHeader {
     /// 1, 2, 4, 8, 16 are valid.
     bits_per_color: u32,
     /// Bytes per pixel
-    bytes_per_pixel: u32,
+    bits_per_pixel: u32,
     /// ???  is it constant?
     bytes_per_line: u32,
     /// 0: chunky pixels (CMYK CMYK CMYK)
@@ -149,6 +150,106 @@ struct PWGPageHeader {
     rendering_intent: [u8; 64],
     /// Standardized in PWG5101.1
     page_size_name: [u8; 64],
+}
+
+impl PageHeader {
+    pub fn write_to_stream<W>(&self, writer: &mut W) -> Result<usize, Box<dyn Error>>
+    where
+        W: Write,
+    {
+        let mut written = 0;
+
+        written += writer.write(&self.pwg_raster)?;
+        written += writer.write(&self.media_color)?;
+        written += writer.write(&self.media_type)?;
+        written += writer.write(&self.print_content_optimize)?;
+        written += writer.write(&self.reserved_0)?;
+        written += writer.write(&self.cut_media.to_be_bytes())?;
+        written += writer.write(&self.duplex.to_be_bytes())?;
+        written += writer.write(&self.hw_resolution[0].to_be_bytes())?;
+        written += writer.write(&self.hw_resolution[1].to_be_bytes())?;
+        written += writer.write(&self.reserved_1)?;
+        written += writer.write(&self.insert_sheet.to_be_bytes())?;
+        written += writer.write(&self.jog.to_be_bytes())?;
+        written += writer.write(&self.leading_edge.to_be_bytes())?;
+        written += writer.write(&self.reserved_2)?;
+        written += writer.write(&self.media_position.to_be_bytes())?;
+        written += writer.write(&self.media_weight_metric.to_be_bytes())?;
+        written += writer.write(&self.reserved_3)?;
+        written += writer.write(&self.num_copies.to_be_bytes())?;
+        written += writer.write(&self.orientation.to_be_bytes())?;
+        written += writer.write(&self.reserved_4)?;
+        written += writer.write(&self.page_size[0].to_be_bytes())?;
+        written += writer.write(&self.page_size[1].to_be_bytes())?;
+        written += writer.write(&self.reserved_5)?;
+        written += writer.write(&self.tumble.to_be_bytes())?;
+        written += writer.write(&self.width.to_be_bytes())?;
+        written += writer.write(&self.height.to_be_bytes())?;
+        written += writer.write(&self.reserved_6)?;
+        written += writer.write(&self.bits_per_color.to_be_bytes())?;
+        written += writer.write(&self.bits_per_pixel.to_be_bytes())?;
+        written += writer.write(&self.bytes_per_line.to_be_bytes())?;
+        written += writer.write(&self.color_order.to_be_bytes())?;
+        written += writer.write(&self.color_space.to_be_bytes())?;
+        written += writer.write(&self.reserved_7)?;
+        written += writer.write(&self.num_colors.to_be_bytes())?;
+        written += writer.write(&self.reserved_8)?;
+        written += writer.write(&self.total_page_count.to_be_bytes())?;
+        written += writer.write(&self.cross_feed_transform.to_be_bytes())?;
+        written += writer.write(&self.feed_transform.to_be_bytes())?;
+        written += writer.write(&self.image_box_left.to_be_bytes())?;
+        written += writer.write(&self.image_box_top.to_be_bytes())?;
+        written += writer.write(&self.image_box_right.to_be_bytes())?;
+        written += writer.write(&self.image_box_bottom.to_be_bytes())?;
+        written += writer.write(&self.alternate_primary.to_be_bytes())?;
+        written += writer.write(&self.print_quality.to_be_bytes())?;
+        written += writer.write(&self.reserved_9)?;
+        written += writer.write(&self.vendor_identifier.to_be_bytes())?;
+        written += writer.write(&self.vendor_length.to_be_bytes())?;
+        written += writer.write(&self.vendor_data)?;
+        written += writer.write(&self.reserved_10)?;
+        written += writer.write(&self.rendering_intent)?;
+        written += writer.write(&self.page_size_name)?;
+
+        Ok(written)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct SrgbColor {
+    r: u8,
+    g: u8,
+    b: u8,
+}
+
+#[derive(Debug)]
+pub struct Page {
+    header: PageHeader,
+    bitmap: Vec<SrgbColor>,
+}
+
+impl Page {
+    fn write_bitmap<W>(&self, writer: &mut W) -> Result<usize, Box<dyn Error>>
+    where
+        W: Write,
+    {
+        let width = self.header.width;
+        let height = self.header.height;
+
+        todo!();
+    }
+
+    pub fn write_to_stream<W>(&self, writer: &mut W) -> Result<usize, Box<dyn Error>>
+    where
+        W: Write,
+    {
+        let mut written = 0;
+
+        written += self.header.write_to_stream(writer)?;
+        written += self.write_bitmap(writer)?;
+
+        Ok(written)
+    }
 }
 
 pub fn read_raster<R>(reader: &mut R) -> Result<(), Box<dyn Error>>
