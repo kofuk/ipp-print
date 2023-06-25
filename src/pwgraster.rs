@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::io::prelude::*;
+use std::fs::File;
 
 struct PWGPageHeader {
     /// NUL-terminated string saying "PwgRaster".
@@ -518,6 +519,58 @@ where
     );
 
     println!("{}", n_read);
+
+    let mut out = File::create("/tmp/out.ppm")?;
+    writeln!(out, "P3")?;
+    writeln!(out, "2480 3507")?;
+    writeln!(out, "255")?;
+
+    let mut written_rows: u32 = 0;
+    loop {
+        let mut buf = [0u8; 1];
+        if let Err(err) = reader.read_exact(&mut buf) {
+            println!("{}", err);
+            break;
+        }
+
+        let mut row = Vec::<u8>::new();
+
+        let mut x_written: u32 = 0;
+
+        loop {
+            let mut buf = [0u8; 4];
+            if let Err(err) = reader.read_exact(&mut buf) {
+                println!("{}", err);
+                break;
+            }
+            for _ in 0..=buf[0] {
+                if x_written >= 2480 {
+                    println!("warning: current column exceeded its size on row {}", written_rows);
+                    break;
+                }
+                write!(row, "{} {} {} ", buf[1], buf[2], buf[3])?;
+                x_written += 1;
+            }
+
+            if x_written >= 2480 {
+                break;
+            }
+        }
+        writeln!(row)?;
+
+        for _ in 0..=buf[0] {
+            if written_rows >= 3507 {
+                println!("warning: current row exceeded its size!");
+                break;
+            }
+            out.write(row.as_slice())?;
+            written_rows += 1;
+        }
+
+        if written_rows >= 3507 {
+            break;
+        }
+    }
 
     Ok(())
 }
