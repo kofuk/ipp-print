@@ -262,6 +262,34 @@ fn print_sample_page() -> Result<(), Box<dyn Error>> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let mut file = std::fs::File::open("data/cups-raster")?;
-    read_raster(&mut file)
+    let mut bitmap = vec![SrgbColor::new(255, 255, 255); 2480 * 3507];
+
+    for y in 100..125 {
+        for x in 100..300 {
+            bitmap[y * 2480 + x] = SrgbColor::new(255, 0, 0);
+        }
+    }
+
+    for y in 150..175 {
+        for x in 100..300 {
+            bitmap[y * 2480 + x] = SrgbColor::new(0, 255, 0);
+        }
+    }
+
+    for y in 200..225 {
+        for x in 100..300 {
+            bitmap[y * 2480 + x] = SrgbColor::new(0, 0, 255);
+        }
+    }
+
+    let page = Page::new(
+        PageHeader::default(),
+        bitmap,
+    );
+
+    let mut data = Vec::<u8>::new();
+    data.write(b"RaS2")?;
+    page.write_to_stream(& mut data)?;
+
+    read_raster(&mut &data[..])
 }

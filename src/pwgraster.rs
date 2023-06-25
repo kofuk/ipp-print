@@ -152,6 +152,62 @@ pub struct PageHeader {
     page_size_name: [u8; 64],
 }
 
+impl Default for PageHeader {
+    fn default() -> Self {
+        Self {
+            pwg_raster: [0; 64],
+            media_color: [0; 64],
+            media_type: [0; 64],
+            print_content_optimize: [0; 64],
+            reserved_0: [0; 12],
+            cut_media: 0,
+            duplex: 0,
+            hw_resolution: [300, 300],
+            reserved_1: [0; 16],
+            insert_sheet: 0,
+            jog: 0,
+            leading_edge: 0,
+            reserved_2: [0; 12],
+            media_position: 0,
+            media_weight_metric: 0,
+            reserved_3: [0; 8],
+            num_copies: 0,
+            orientation: 0,
+            reserved_4: [0; 4],
+            page_size: [595, 841],
+            reserved_5: [0;8],
+            tumble: 0,
+            width: 2480,
+            height: 3507,
+            reserved_6: [0; 4],
+            bits_per_color: 8,
+            bits_per_pixel: 24,
+            bytes_per_line: 7440,
+            color_order: 0,
+            color_space: 19,
+            reserved_7: [0; 16],
+            num_colors: 3,
+            reserved_8: [0; 28],
+            total_page_count: 1,
+            cross_feed_transform: 1,
+            feed_transform: 1,
+            image_box_left: 0,
+            image_box_top: 0,
+            image_box_right: 0,
+            image_box_bottom: 0,
+            alternate_primary: 0xFFFFFF,
+            print_quality: 0,
+            reserved_9: [0; 20],
+            vendor_identifier: 0,
+            vendor_length: 0,
+            vendor_data: [0; 1088],
+            reserved_10: [0; 64],
+            rendering_intent: [0; 64],
+            page_size_name: *b"iso_a4_210x297mm\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",
+        }
+    }
+}
+
 impl PageHeader {
     pub fn write_to_stream<W>(&self, writer: &mut W) -> Result<usize, Box<dyn Error>>
     where
@@ -215,11 +271,17 @@ impl PageHeader {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SrgbColor {
     r: u8,
     g: u8,
     b: u8,
+}
+
+impl SrgbColor {
+    pub fn new(r: u8, g: u8, b: u8) -> Self {
+        Self { r, g, b }
+    }
 }
 
 #[derive(Debug)]
@@ -229,14 +291,31 @@ pub struct Page {
 }
 
 impl Page {
+    pub fn new(header: PageHeader, bitmap: Vec<SrgbColor>) -> Self {
+        Self { header, bitmap }
+    }
+
     fn write_bitmap<W>(&self, writer: &mut W) -> Result<usize, Box<dyn Error>>
     where
         W: Write,
     {
         let width = self.header.width;
         let height = self.header.height;
+        if self.bitmap.len() != (width * height) as usize {
+            panic!();
+        }
 
-        todo!();
+        let mut written = 0;
+
+        for y in 0..height {
+            written += writer.write(&[0])?;
+            for x in 0..width {
+                let color = &self.bitmap[(y * width + x) as usize];
+                written += writer.write(&[0, color.r, color.g, color.b])?;
+            }
+        }
+
+        Ok(written)
     }
 
     pub fn write_to_stream<W>(&self, writer: &mut W) -> Result<usize, Box<dyn Error>>
@@ -630,8 +709,7 @@ where
     loop {
         let mut buf = [0u8; 1];
         if let Err(err) = reader.read_exact(&mut buf) {
-            println!("{}", err);
-            break;
+            panic!("{}", err);
         }
 
         let mut row = Vec::<u8>::new();
@@ -641,14 +719,12 @@ where
         loop {
             let mut buf = [0u8; 1];
             if let Err(err) = reader.read_exact(&mut buf) {
-                println!("{}", err);
-                break;
+                panic!("{}", err)
             }
             if buf[0] <= 128 {
                 let mut color = [0u8; 3];
                 if let Err(err) = reader.read_exact(&mut color) {
-                    println!("{}", err);
-                    break;
+                    panic!("{}", err);
                 }
                 for _ in 0..=buf[0] {
                     if x_written >= 2480 {
@@ -672,8 +748,7 @@ where
                     }
                     let mut color = [0u8; 3];
                     if let Err(err) = reader.read_exact(&mut color) {
-                        println!("{}", err);
-                        break;
+                        panic!("{}", err);
                     }
                     write!(row, "{} {} {} ", color[0], color[1], color[2])?;
                     x_written += 1;
