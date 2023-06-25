@@ -1,6 +1,6 @@
 use std::error::Error;
-use std::io::prelude::*;
 use std::fs::File;
+use std::io::prelude::*;
 
 struct PWGPageHeader {
     /// NUL-terminated string saying "PwgRaster".
@@ -538,18 +538,45 @@ where
         let mut x_written: u32 = 0;
 
         loop {
-            let mut buf = [0u8; 4];
+            let mut buf = [0u8; 1];
             if let Err(err) = reader.read_exact(&mut buf) {
                 println!("{}", err);
                 break;
             }
-            for _ in 0..=buf[0] {
-                if x_written >= 2480 {
-                    println!("warning: current column exceeded its size on row {}", written_rows);
+            if buf[0] <= 128 {
+                let mut color = [0u8; 3];
+                if let Err(err) = reader.read_exact(&mut color) {
+                    println!("{}", err);
                     break;
                 }
-                write!(row, "{} {} {} ", buf[1], buf[2], buf[3])?;
-                x_written += 1;
+                for _ in 0..=buf[0] {
+                    if x_written >= 2480 {
+                        println!(
+                            "warning: current line exceeded its size on line {}",
+                            written_rows
+                        );
+                        break;
+                    }
+                    write!(row, "{} {} {} ", color[0], color[1], color[2])?;
+                    x_written += 1;
+                }
+            } else {
+                for _ in 0..(257 - buf[0] as u16) {
+                    if x_written >= 2480 {
+                        println!(
+                            "warning: current line exceeded its size on line {}",
+                            written_rows
+                        );
+                        break;
+                    }
+                    let mut color = [0u8; 3];
+                    if let Err(err) = reader.read_exact(&mut color) {
+                        println!("{}", err);
+                        break;
+                    }
+                    write!(row, "{} {} {} ", color[0], color[1], color[2])?;
+                    x_written += 1;
+                }
             }
 
             if x_written >= 2480 {
@@ -560,7 +587,7 @@ where
 
         for _ in 0..=buf[0] {
             if written_rows >= 3507 {
-                println!("warning: current row exceeded its size!");
+                println!("warning: image too long!");
                 break;
             }
             out.write(row.as_slice())?;
