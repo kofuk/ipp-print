@@ -276,16 +276,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let page = Page::new(
-        PageHeader::default(),
-        bitmap,
-    );
+    let page = Page::new(PageHeader::default(), bitmap);
 
     let mut data = Vec::<u8>::new();
     data.write(b"RaS2")?;
-    page.write_to_stream(& mut data)?;
+    page.write_to_stream(&mut data)?;
 
-    read_raster(&mut &data[..])?;
+    let mut f = std::fs::File::open("/tmp/doc.pwg")?;
+    read_raster(&mut f)
 
-    print_page(data)
+    // print_page(data)
 }

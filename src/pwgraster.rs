@@ -721,12 +721,13 @@ where
             if let Err(err) = reader.read_exact(&mut buf) {
                 panic!("{}", err)
             }
-            if buf[0] <= 128 {
+            let run_len = buf[0] as i8;
+            if run_len >= 0 {
                 let mut color = [0u8; 3];
                 if let Err(err) = reader.read_exact(&mut color) {
                     panic!("{}", err);
                 }
-                for _ in 0..=buf[0] {
+                for _ in 0..=run_len {
                     if x_written >= 2480 {
                         println!(
                             "warning: current line exceeded its size on line {}",
@@ -738,7 +739,8 @@ where
                     x_written += 1;
                 }
             } else {
-                for _ in 0..(257 - buf[0] as u16) {
+                let run_len = -run_len;
+                for _ in 0..=run_len {
                     if x_written >= 2480 {
                         println!(
                             "warning: current line exceeded its size on line {}",
