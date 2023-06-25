@@ -1,12 +1,7 @@
 use std::error::Error;
 use std::io::prelude::*;
 
-// Heavily commented based on CUPS Raster Format documentation.
-// It may be inaccurate.
-
-struct PWGRaster {
-    /// Ras2 if big-endian, 2SaR if little endian
-    sync_word: [u8; 4],
+struct PWGPageHeader {
     /// NUL-terminated string saying "PwgRaster".
     pwg_raster: [u8; 64],
     /// NUL-terminated string indicating media color name.
@@ -32,29 +27,45 @@ struct PWGRaster {
     /// [1]: Vertical dpi
     hw_resolution: [u32; 2],
     reserved_1: [u8; 16],
+    /// Insert a single blank sheet prior to the current page.
     /// 0: Do not insert separator sheets
     /// 1: Insert separator sheets
-    ///
-    /// ???  What "separator sheets" means? Simply insert paper which is not printed, or hardware-specific "separator" exists?
     insert_sheet: u32,
+    /// Offset pages in the output bin.
     /// 0: Do not jog pages
     /// 1: Jog pages after file
     /// 2: Jog pages after job
     /// 3: Jog pages after set
-    ///
-    /// ???  What is "Jog"? To wait for ink to dry?
     jog: u32,
-    /// 0: Top edge is first
-    /// 1: Right edge is first
-    /// 2: Bottom edge is first
-    /// 3: Left edge is first
+    /// 0: Short edge first
+    /// 1: Long edge first
     ///
     /// ???  What this parameter means? Direction of printing?
     leading_edge: u32,
     reserved_2: [u8; 12],
-    /// Input slot position from 0 to N
-    ///
-    /// ???  What this parameter means? Place the paper is set?
+    /// Where the paper placed.
+    /// 0: Auto
+    /// 1: Main
+    /// 2: Secondary or alternate source
+    /// 3: Large capacity source
+    /// 4: Manual
+    /// 5: Envelope feed
+    /// 6: CD/DVD/Bluray disc
+    /// 7: Photo
+    /// 8: Hagaki
+    /// 9: Main roll
+    /// 10: Alternate roll
+    /// 11: Topmost source
+    /// 12: Middle source
+    /// 13: Bottommost source
+    /// 14: Side source
+    /// 15: Leftmost source
+    /// 16: Rightmost source
+    /// 17: Center source
+    /// 18: Rear source
+    /// 19: By-pass or multipurpose source
+    /// 20..39: Tray {1..20}
+    /// 40..49: Roll {1..10}
     media_position: u32,
     /// Media weight in g/m^2.
     /// 0 for default.
@@ -63,6 +74,80 @@ struct PWGRaster {
     /// The number of sheets to print
     /// 0 for printer default.
     num_copies: u32,
+    /// 0: Portrait (Do not rotate)
+    /// 1: Landscape (Rotate 90 degrees CCW)
+    /// 2: Reverse portrait (Rotate 180 degrees; up side down)
+    /// 3: Reverse landscape (Rotate 90 degrees CW)
+    orientation: u32,
+    reserved_4: [u8; 4],
+    /// [0]: Width in point
+    /// [1]: Height in point
+    /// Standardized in PWG5101.1
+    page_size: [u32; 2],
+    reserved_5: [u32; 8],
+    /// Rotate the back page when printing on both sides of the page
+    /// 0: Do not rotate (two-sided long edge if duplex=true)
+    /// 1: Rotate (two-sided short edge if duplex=true)
+    tumble: u32,
+    /// Page width in pixels
+    width: u32,
+    /// Page height in pixels
+    height: u32,
+    reserved_6: [u8; 4],
+    /// Bits per color
+    /// 1, 2, 4, 8, 16 are valid.
+    bits_per_color: u32,
+    /// Bytes per pixel
+    bytes_per_pixel: u32,
+    /// ???  is it constant?
+    bytes_per_line: u32,
+    /// 0: chunky pixels (CMYK CMYK CMYK)
+    color_order: u32,
+    /// 1: RGB
+    /// 3: black
+    /// 6: CMYK
+    /// 18: sGray (gray using sRGB gamma/white point)
+    /// 19: sRGB
+    /// 20: AdobeRGB
+    /// 48..62: ICC{1..15} (CIE Lab with hint for {1..15} color)
+    color_space: u32,
+    reserved_7: [u8; 16],
+    /// The number of colors
+    num_colors: u32,
+    reserved_8: [u8; 28],
+    /// The number of pages.
+    /// 0 if the total number of pages is not known wan the file is produced.
+    total_page_count: u32,
+    /// 1: Normal orientation
+    /// -1: reversed orientation
+    cross_feed_transform: i32,
+    /// 1: Normal orientation
+    /// -1: reversed orientation
+    feed_transform: i32,
+    /// 0 if unknown
+    image_box_left: u32,
+    /// 0 if unknown
+    image_box_top: u32,
+    /// 0 if unknown
+    image_box_right: u32,
+    /// 0 if unknown
+    image_box_bottom: u32,
+    /// For bi-level or monochrome page, use this color to print output the page.
+    alternate_primary: u32,
+    /// 0: Default
+    /// 1: Draft
+    /// 2: Normal
+    /// 3: High
+    print_quality: u32,
+    reserved_9: [u8; 20],
+    vendor_identifier: u32,
+    vendor_length: u32,
+    /// Vendor-specific data
+    vendor_data: [u8; 1088],
+    reserved_10: [u8; 64],
+    rendering_intent: [u8; 64],
+    /// Standardized in PWG5101.1
+    page_size_name: [u8; 64],
 }
 
 pub fn read_raster<R>(reader: &mut R) -> Result<(), Box<dyn Error>>
@@ -72,7 +157,6 @@ where
     let mut n_read = 0;
 
     let mut buf = [0u8; 4];
-    n_read += buf.len();
     reader.read_exact(&mut buf)?;
     println!(
         "Synchronization Word={}",
@@ -348,17 +432,22 @@ where
     let mut buf = [0u8; 4];
     reader.read_exact(&mut buf)?;
     n_read += buf.len();
+    println!("(cups)ImagingBBox[top]={}", f32::from_be_bytes(buf));
+
+    let mut buf = [0u8; 4];
+    reader.read_exact(&mut buf)?;
+    n_read += buf.len();
     println!("TotalPageCount={}", u32::from_be_bytes(buf));
 
     let mut buf = [0u8; 4];
     reader.read_exact(&mut buf)?;
     n_read += buf.len();
-    println!("CrossFeedTransform={}", u32::from_be_bytes(buf));
+    println!("CrossFeedTransform={}", i32::from_be_bytes(buf));
 
     let mut buf = [0u8; 4];
     reader.read_exact(&mut buf)?;
     n_read += buf.len();
-    println!("FeedTransform={}", u32::from_be_bytes(buf));
+    println!("FeedTransform={}", i32::from_be_bytes(buf));
 
     let mut buf = [0u8; 4];
     reader.read_exact(&mut buf)?;
@@ -383,7 +472,7 @@ where
     let mut buf = [0u8; 4];
     reader.read_exact(&mut buf)?;
     n_read += buf.len();
-    println!("AlternatePrimary={}", u32::from_be_bytes(buf));
+    println!("AlternatePrimary={:x}", u32::from_be_bytes(buf));
 
     let mut buf = [0u8; 4];
     reader.read_exact(&mut buf)?;

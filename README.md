@@ -27,7 +27,8 @@ that support these standards as regular IPP devices.
 
 - [RFC 8010: Internet Printing Protocol/1.1: Encoding and Transport](https://www.rfc-editor.org/rfc/rfc8010.html)
 - [RFC 8011: Internet Printing Protocol/1.1: Model and Semantics](https://www.rfc-editor.org/rfc/inline-errata/rfc8011.html)
-- [PWG Raster Format \[PDF\]](https://ftp.pwg.org/pub/pwg/candidates/cs-ippraster10-20120420-5102.4.pdf)
+- [PWG5102.4: PWG Raster Format \[PDF\]](https://ftp.pwg.org/pub/pwg/candidates/cs-ippraster10-20120420-5102.4.pdf)
 - [CUPS Raster Format](https://www.cups.org/doc/spec-raster.html) (PWG Raster is subset of CUPS Raster v2))
 - [PWG Raster sample files](https://ftp.pwg.org/pub/pwg/ipp/examples/)
+- [PWG5101.1: PWG Media Standardized Names 2.0 \[PDF\]](https://ftp.pwg.org/pub/pwg/candidates/cs-pwgmsn20-20130328-5101.1.pdf)
 - [Driverless Printing Standards And their PDLS](https://openprinting.github.io/driverless/01-standards-and-their-pdls/)
