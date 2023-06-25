@@ -2,13 +2,15 @@
 
 ## Current Status
 
-- Send IPP request
-- Receive IPP response and parse it to Rust struct
-- Print sample URF raster data
+- Send and receive IPP payload.
+- Generate PWG Raster data.
+- Print hard-coded bitmap using APIs above.
 
 ## TODO
 
-- [ ] Generate raster data
+- [ ] Run-length encode bitmap to reduce size.
+- [ ] Check printer attributes and generate rasters in a format appropriate for the printer.
+- [ ] Implement an API that abstracts the protocol for ease of use.
 
 ## About IPP and Driverless Printing
 
