@@ -284,68 +284,53 @@ impl SrgbColor {
     }
 }
 
-#[derive(Debug)]
-pub struct Page {
-    header: PageHeader,
-    bitmap: Vec<SrgbColor>,
+impl From<u32> for SrgbColor {
+    fn from(value: u32) -> Self {
+        SrgbColor {
+            r: (value >> 16) as u8,
+            g: (value >> 8) as u8,
+            b: (value >> 0) as u8,
+        }
+    }
 }
 
-impl Page {
-    pub fn new(header: PageHeader, bitmap: Vec<SrgbColor>) -> Self {
-        Self { header, bitmap }
+#[derive(Debug)]
+pub struct Image {
+    width: u32,
+    height: u32,
+    pixels: Vec<SrgbColor>,
+}
+
+impl Image {
+    pub fn new(width: u32, height: u32, pixels: Vec<SrgbColor>) -> Option<Self> {
+        if width as usize * height as usize != pixels.len() {
+            return None;
+        }
+
+        Some(Self {
+            width,
+            height,
+            pixels,
+        })
     }
 
-    fn write_bitmap<W>(&self, writer: &mut W) -> Result<usize, Box<dyn Error>>
+    pub fn encode<W>(&self, writer: &mut W) -> Result<usize, Box<dyn Error>>
     where
         W: Write,
     {
-        let width = self.header.width as usize;
-        let height = self.header.height as usize;
-        if self.bitmap.len() != width * height {
-            panic!();
-        }
+        todo!()
+    }
+}
 
-        let mut rep_v = vec![false; height];
-        let mut same_h = vec![false; width];
-        for y in 1..height {
-            rep_v[y] = self.bitmap[((y - 1) * width)..(y * width)] == self.bitmap[(y * width)..((y + 1) * width)];
-        }
+#[derive(Debug)]
+pub struct Page {
+    header: PageHeader,
+    bitmap: Image,
+}
 
-        let mut written = 0;
-
-        let mut y = 0;
-        loop {
-            let mut rep_count = 0u8;
-            for rep_y in (y + 1)..height {
-                if !rep_v[rep_y] {
-                    break;
-                }
-                rep_count += 1;
-                if rep_count == 255 {
-                    break;
-                }
-            }
-
-            written += writer.write(&[rep_count])?;
-
-            // TODO: Encode and write pixels 
-
-            y += rep_count as usize + 1;
-
-            if y >= height {
-                break;
-            }
-        }
-
-        for y in 0..height {
-            written += writer.write(&[0])?;
-            for x in 0..width {
-                let color = &self.bitmap[(y * width + x) as usize];
-                written += writer.write(&[0, color.r, color.g, color.b])?;
-            }
-        }
-
-        Ok(written)
+impl Page {
+    pub fn new(header: PageHeader, bitmap: Image) -> Self {
+        Self { header, bitmap }
     }
 
     pub fn write_to_stream<W>(&self, writer: &mut W) -> Result<usize, Box<dyn Error>>
@@ -355,7 +340,7 @@ impl Page {
         let mut written = 0;
 
         written += self.header.write_to_stream(writer)?;
-        written += self.write_bitmap(writer)?;
+        written += self.bitmap.encode(writer)?;
 
         Ok(written)
     }
@@ -808,4 +793,40 @@ where
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encode_image() {
+        // test with sample sRGB bitmap described in the spec.
+
+        #[rustfmt::skip]
+        let image = Image::new(8, 8, [
+            0xFFFFFF, 0xFFFF00, 0xFFFF00, 0xFFFF00, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF,
+            0xFFFF00, 0x0000FF, 0xFFFF00, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0x00FF00, 0xFFFFFF,
+            0xFFFF00, 0xFFFF00, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0x00FF00, 0x00FF00, 0x00FF00,
+            0xFFFF00, 0xFFFF00, 0xFFFF00, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0x00FF00, 0xFFFFFF,
+            0xFFFFFF, 0xFFFF00, 0xFFFF00, 0xFFFF00, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF,
+            0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF,
+            0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000,
+            0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000,
+        ].into_iter().map(|e| e.into()).collect::<_>()).unwrap();
+
+        let mut out = Vec::new();
+        let encoded_len = image.encode(&mut out).unwrap();
+        assert_eq!(87, encoded_len);
+        let expected_bytes = vec![
+            0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x02, 0xFF, 0xFF, 0x00, 0x03, 0xFF, 0xFF, 0xFF, 0x00,
+            0xFE, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x02, 0xFF, 0xFF, 0xFF,
+            0xFF, 0x00, 0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x01, 0xFF, 0xFF, 0x00, 0x02, 0xFF,
+            0xFF, 0xFF, 0x02, 0x00, 0xFF, 0x00, 0x00, 0x02, 0xFF, 0xFF, 0x00, 0x02, 0xFF, 0xFF,
+            0xFF, 0xFF, 0x00, 0xFF, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x02,
+            0xFF, 0xFF, 0x00, 0x03, 0xFF, 0xFF, 0xFF, 0x00, 0x07, 0xFF, 0xFF, 0xFF, 0x01, 0x07,
+            0xFF, 0x00, 0x00,
+        ];
+        assert_eq!(out, expected_bytes);
+    }
 }

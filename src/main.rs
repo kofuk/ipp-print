@@ -276,7 +276,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let page = Page::new(PageHeader::default(), bitmap);
+    let page = Page::new(
+        PageHeader::default(),
+        Image::new(2480, 3507, bitmap).unwrap(),
+    );
 
     let mut data = Vec::<u8>::new();
     data.write(b"RaS2")?;
