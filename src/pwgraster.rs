@@ -318,7 +318,46 @@ impl Image {
     where
         W: Write,
     {
-        todo!()
+        let mut written = 0;
+        let w = self.width as usize;
+        let h = self.height as usize;
+        let mut y = 0;
+        while y < h {
+            let mut y_comm_len = 0;
+            while y_comm_len < 256 && (y + 1) * w - 1 < self.pixels.len() {
+                if self.pixels[(y * w)..((y + 1) * w)] != self.pixels[((y + 1) * w)..((y + 2) * w)]
+                {
+                    break;
+                }
+
+                y += 1;
+                y_comm_len += 1;
+            }
+
+            written += writer.write(&[y_comm_len as u8])?;
+
+            let mut comm_x = vec![0u8; w];
+            for xx in (1..w - 1).rev() {
+                comm_x[xx] = if &self.pixels[(y * w) + xx] == &self.pixels[(y * w) + xx + 1] {
+                    if comm_x[xx + 1] <= 0 {
+                        1
+                    } else {
+                        comm_x[xx + 1] + 1
+                    }
+                } else {
+                    if comm_x[xx + 1] <= 0 {
+                        comm_x[xx + 1] - 1
+                    } else {
+                        0
+                    }
+                };
+            }
+
+            let mut x = 0;
+            while x < w {}
+        }
+
+        Ok(written)
     }
 }
 
