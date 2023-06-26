@@ -299,13 +299,43 @@ impl Page {
     where
         W: Write,
     {
-        let width = self.header.width;
-        let height = self.header.height;
-        if self.bitmap.len() != (width * height) as usize {
+        let width = self.header.width as usize;
+        let height = self.header.height as usize;
+        if self.bitmap.len() != width * height {
             panic!();
         }
 
+        let mut rep_v = vec![false; height];
+        let mut same_h = vec![false; width];
+        for y in 1..height {
+            rep_v[y] = self.bitmap[((y - 1) * width)..(y * width)] == self.bitmap[(y * width)..((y + 1) * width)];
+        }
+
         let mut written = 0;
+
+        let mut y = 0;
+        loop {
+            let mut rep_count = 0u8;
+            for rep_y in (y + 1)..height {
+                if !rep_v[rep_y] {
+                    break;
+                }
+                rep_count += 1;
+                if rep_count == 255 {
+                    break;
+                }
+            }
+
+            written += writer.write(&[rep_count])?;
+
+            // TODO: Encode and write pixels 
+
+            y += rep_count as usize + 1;
+
+            if y >= height {
+                break;
+            }
+        }
 
         for y in 0..height {
             written += writer.write(&[0])?;
