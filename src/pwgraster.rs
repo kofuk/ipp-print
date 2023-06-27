@@ -295,93 +295,39 @@ impl From<u32> for SrgbColor {
 }
 
 #[derive(Debug)]
-pub struct Image {
+pub struct ImageEncoder {
     width: u32,
     height: u32,
-    pixels: Vec<SrgbColor>,
+    prev_row: Option<Vec<SrgbColor>>,
+    written_rows: u32,
 }
 
-impl Image {
-    pub fn new(width: u32, height: u32, pixels: Vec<SrgbColor>) -> Option<Self> {
-        if width as usize * height as usize != pixels.len() {
-            return None;
-        }
-
-        Some(Self {
+impl ImageEncoder {
+    pub fn new(width: u32, height: u32) -> Self {
+        Self {
             width,
             height,
-            pixels,
-        })
-    }
-
-    pub fn encode<W>(&self, writer: &mut W) -> Result<usize, Box<dyn Error>>
-    where
-        W: Write,
-    {
-        let mut written = 0;
-        let w = self.width as usize;
-        let h = self.height as usize;
-        let mut y = 0;
-        while y < h {
-            let mut y_comm_len = 0;
-            while y_comm_len < 256 && (y + 1) * w - 1 < self.pixels.len() {
-                if self.pixels[(y * w)..((y + 1) * w)] != self.pixels[((y + 1) * w)..((y + 2) * w)]
-                {
-                    break;
-                }
-
-                y += 1;
-                y_comm_len += 1;
-            }
-
-            written += writer.write(&[y_comm_len as u8])?;
-
-            let mut comm_x = vec![0u8; w];
-            for xx in (1..w - 1).rev() {
-                comm_x[xx] = if &self.pixels[(y * w) + xx] == &self.pixels[(y * w) + xx + 1] {
-                    if comm_x[xx + 1] <= 0 {
-                        1
-                    } else {
-                        comm_x[xx + 1] + 1
-                    }
-                } else {
-                    if comm_x[xx + 1] <= 0 {
-                        comm_x[xx + 1] - 1
-                    } else {
-                        0
-                    }
-                };
-            }
-
-            let mut x = 0;
-            while x < w {}
+            prev_row: None,
+            written_rows: 0,
         }
-
-        Ok(written)
-    }
-}
-
-#[derive(Debug)]
-pub struct Page {
-    header: PageHeader,
-    bitmap: Image,
-}
-
-impl Page {
-    pub fn new(header: PageHeader, bitmap: Image) -> Self {
-        Self { header, bitmap }
     }
 
-    pub fn write_to_stream<W>(&self, writer: &mut W) -> Result<usize, Box<dyn Error>>
+    fn do_encode_row<W>(writer: &mut W, row: &Vec<SrgbColor>) -> Result<usize, Box<dyn Error>>
     where
         W: Write,
     {
-        let mut written = 0;
+        todo!();
+    }
 
-        written += self.header.write_to_stream(writer)?;
-        written += self.bitmap.encode(writer)?;
-
-        Ok(written)
+    pub fn write_row<W>(
+        &self,
+        writer: &mut W,
+        row: &Vec<SrgbColor>,
+    ) -> Result<usize, Box<dyn Error>>
+    where
+        W: Write,
+    {
+        todo!();
     }
 }
 
@@ -842,20 +788,27 @@ mod tests {
     fn encode_image() {
         // test with sample sRGB bitmap described in the spec.
 
+        let encoder = ImageEncoder::new(8, 8);
+
         #[rustfmt::skip]
-        let image = Image::new(8, 8, [
-            0xFFFFFF, 0xFFFF00, 0xFFFF00, 0xFFFF00, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF,
-            0xFFFF00, 0x0000FF, 0xFFFF00, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0x00FF00, 0xFFFFFF,
-            0xFFFF00, 0xFFFF00, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0x00FF00, 0x00FF00, 0x00FF00,
-            0xFFFF00, 0xFFFF00, 0xFFFF00, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0x00FF00, 0xFFFFFF,
-            0xFFFFFF, 0xFFFF00, 0xFFFF00, 0xFFFF00, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF,
-            0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF,
-            0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000,
-            0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000,
-        ].into_iter().map(|e| e.into()).collect::<_>()).unwrap();
+        let image_data = [
+            [0xFFFFFF, 0xFFFF00, 0xFFFF00, 0xFFFF00, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF],
+            [0xFFFF00, 0x0000FF, 0xFFFF00, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0x00FF00, 0xFFFFFF],
+            [0xFFFF00, 0xFFFF00, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0x00FF00, 0x00FF00, 0x00FF00],
+            [0xFFFF00, 0xFFFF00, 0xFFFF00, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0x00FF00, 0xFFFFFF],
+            [0xFFFFFF, 0xFFFF00, 0xFFFF00, 0xFFFF00, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF],
+            [0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF],
+            [0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000],
+            [0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000, 0xFF0000],
+        ];
 
         let mut out = Vec::new();
-        let encoded_len = image.encode(&mut out).unwrap();
+        let mut encoded_len = 0;
+        for row in image_data {
+            encoded_len = encoder
+                .write_row(&mut out, &row.into_iter().map(|e| e.into()).collect::<_>())
+                .unwrap();
+        }
         assert_eq!(87, encoded_len);
         let expected_bytes = vec![
             0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x02, 0xFF, 0xFF, 0x00, 0x03, 0xFF, 0xFF, 0xFF, 0x00,
@@ -867,5 +820,23 @@ mod tests {
             0xFF, 0x00, 0x00,
         ];
         assert_eq!(out, expected_bytes);
+    }
+
+    #[test]
+    fn encode_row() {
+        let data = [
+            0xFFFF00, 0x0000FF, 0xFFFF00, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0x00FF00, 0xFFFFFF,
+        ]
+        .into_iter()
+        .map(|e| e.into())
+        .collect::<_>();
+        let mut out = Vec::new();
+        let written = ImageEncoder::do_encode_row(&mut out, &data).unwrap();
+        assert_eq!(21, written);
+        let expected_bytes = vec![
+            0xFE, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x02, 0xFF, 0xFF, 0xFF,
+            0xFF, 0x00, 0xFF, 0x00, 0xFF, 0xFF, 0xFF,
+        ];
+        assert_eq!(expected_bytes, out);
     }
 }
