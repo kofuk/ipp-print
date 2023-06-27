@@ -277,14 +277,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let hdr = PageHeader::default();
-    let encoder = ImageEncoder::new(2480, 3507);
+    let mut encoder = ImageEncoder::new(2480, 3507);
 
     let mut data = Vec::<u8>::new();
     data.write(b"RaS2")?;
     hdr.write_to_stream(&mut data)?;
     let row = vec![SrgbColor::new(255, 255, 255); 2480];
     for _ in 0..3507 {
-        encoder.write_row(&mut data, &row)?;
+        encoder.write_row(&mut data, row.clone())?;
     }
 
     let mut f = std::fs::File::open("/tmp/doc.pwg")?;

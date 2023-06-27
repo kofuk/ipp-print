@@ -300,6 +300,7 @@ pub struct ImageEncoder {
     height: u32,
     prev_row: Option<Vec<SrgbColor>>,
     written_rows: u32,
+    comm_rows: u8,
 }
 
 impl ImageEncoder {
@@ -309,10 +310,11 @@ impl ImageEncoder {
             height,
             prev_row: None,
             written_rows: 0,
+            comm_rows: 0,
         }
     }
 
-    fn do_encode_row<W>(writer: &mut W, row: &Vec<SrgbColor>) -> Result<usize, Box<dyn Error>>
+    fn do_encode_row<W>(writer: &mut W, row: Vec<SrgbColor>) -> Result<usize, Box<dyn Error>>
     where
         W: Write,
     {
@@ -341,8 +343,6 @@ impl ImageEncoder {
             }
         }
 
-        println!("{:?}", comm);
-
         let mut written = 0;
 
         let mut x = 0;
@@ -367,14 +367,48 @@ impl ImageEncoder {
     }
 
     pub fn write_row<W>(
-        &self,
+        &mut self,
         writer: &mut W,
-        row: &Vec<SrgbColor>,
+        row: Vec<SrgbColor>,
     ) -> Result<usize, Box<dyn Error>>
     where
         W: Write,
     {
-        todo!();
+        if row.len() != self.width as usize {
+            panic!();
+        }
+        if self.written_rows >= self.height {
+            panic!();
+        }
+
+        println!("{} {}", self.written_rows, self.height);
+
+        if self.prev_row.is_none() {
+            self.written_rows += 1;
+            self.prev_row = Some(row);
+            return Ok(0);
+        }
+
+        let mut written = 0;
+
+        if self.written_rows + 1 != self.height && self.prev_row.as_ref().unwrap() == &row {
+            self.comm_rows += 1;
+            self.written_rows += 1;
+            return Ok(0);
+        }
+
+        // TODO: handle comm rows longer than 128.
+
+        let prev_row = self.prev_row.take().unwrap();
+        self.prev_row = Some(row);
+
+        written += writer.write(&[self.comm_rows])?;
+        written += ImageEncoder::do_encode_row(writer, prev_row)?;
+
+        self.comm_rows = 0;
+        self.written_rows += 1;
+
+        Ok(written)
     }
 }
 
@@ -840,7 +874,7 @@ mod tests {
         .map(|e| e.into())
         .collect::<_>();
         let mut out = Vec::new();
-        ImageEncoder::do_encode_row(&mut out, &data).unwrap();
+        ImageEncoder::do_encode_row(&mut out, data).unwrap();
         let expected_bytes = vec![
             0xFE, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x02, 0xFF, 0xFF, 0xFF,
             0xFF, 0x00, 0xFF, 0x00, 0xFF, 0xFF, 0xFF,
@@ -852,7 +886,7 @@ mod tests {
     fn encode_row_long_comm_pixels() {
         let data = [0; 200].into_iter().map(|e| e.into()).collect::<_>();
         let mut out = Vec::new();
-        ImageEncoder::do_encode_row(&mut out, &data).unwrap();
+        ImageEncoder::do_encode_row(&mut out, data).unwrap();
         let expected_bytes = vec![0x47, 0x00, 0x00, 0x00, 0x7F, 0x00, 0x00, 0x00];
         assert_eq!(expected_bytes, out);
     }
@@ -861,7 +895,7 @@ mod tests {
     fn encode_row_long_diff_pixels() {
         let data = (0..200).map(|e| e.into()).collect::<_>();
         let mut out = Vec::new();
-        ImageEncoder::do_encode_row(&mut out, &data).unwrap();
+        ImageEncoder::do_encode_row(&mut out, data).unwrap();
         let expected_bytes = vec![
             186, 0, 0, 0, 0, 0, 1, 0, 0, 2, 0, 0, 3, 0, 0, 4, 0, 0, 5, 0, 0, 6, 0, 0, 7, 0, 0, 8,
             0, 0, 9, 0, 0, 10, 0, 0, 11, 0, 0, 12, 0, 0, 13, 0, 0, 14, 0, 0, 15, 0, 0, 16, 0, 0,
@@ -896,7 +930,7 @@ mod tests {
     fn encode_image() {
         // test with sample sRGB bitmap described in the spec.
 
-        let encoder = ImageEncoder::new(8, 8);
+        let mut encoder = ImageEncoder::new(8, 8);
 
         #[rustfmt::skip]
         let image_data = [
@@ -911,13 +945,11 @@ mod tests {
         ];
 
         let mut out = Vec::new();
-        let mut encoded_len = 0;
         for row in image_data {
-            encoded_len = encoder
-                .write_row(&mut out, &row.into_iter().map(|e| e.into()).collect::<_>())
+            encoder
+                .write_row(&mut out, row.into_iter().map(|e| e.into()).collect::<_>())
                 .unwrap();
         }
-        assert_eq!(87, encoded_len);
         let expected_bytes = vec![
             0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x02, 0xFF, 0xFF, 0x00, 0x03, 0xFF, 0xFF, 0xFF, 0x00,
             0xFE, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x00, 0x02, 0xFF, 0xFF, 0xFF,
@@ -927,6 +959,6 @@ mod tests {
             0xFF, 0xFF, 0x00, 0x03, 0xFF, 0xFF, 0xFF, 0x00, 0x07, 0xFF, 0xFF, 0xFF, 0x01, 0x07,
             0xFF, 0x00, 0x00,
         ];
-        assert_eq!(out, expected_bytes);
+        assert_eq!(expected_bytes, out);
     }
 }
