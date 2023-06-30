@@ -101,7 +101,8 @@ pub struct PageHeader {
     bits_per_color: u32,
     /// Bytes per pixel
     bits_per_pixel: u32,
-    /// ???  is it constant?
+    /// Uncompressed bytes per line.
+    /// If this is 8-bit sRGB image, this will be a value of width * 3.
     bytes_per_line: u32,
     /// 0: chunky pixels (CMYK CMYK CMYK)
     color_order: u32,
